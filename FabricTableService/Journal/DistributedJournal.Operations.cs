@@ -14,6 +14,8 @@ namespace FabricTableService.Journal
     using System.IO;
     using System.Threading;
 
+    using Microsoft.Isam.Esent.Interop;
+
     /// <summary>
     /// The distributed journal.
     /// </summary>
@@ -132,7 +134,7 @@ namespace FabricTableService.Journal
                 }
             }
 
-            public abstract void DeserializeInternal(BinaryReader reader);
+            protected abstract void DeserializeInternal(BinaryReader reader);
 
             public byte[] Serialize()
             {
@@ -146,28 +148,40 @@ namespace FabricTableService.Journal
             }
 
             protected abstract void SerializeInternal(BinaryWriter writer);
-        }
-    }
 
-    /// <summary>
-    /// The set operation.
-    /// </summary>
-    internal class SetOperation : DistributedJournal.Operation
-    {
-        public string Value { get; set; }
-
-        public override void DeserializeInternal(BinaryReader reader)
-        {
-            this.Version = reader.ReadInt16();
-            this.Id = reader.ReadInt64();
-            this.Value = reader.ReadString();
+            public abstract void Apply(DistributedJournal journal);
         }
 
-        protected override void SerializeInternal(BinaryWriter writer)
+        /// <summary>
+        /// The set operation.
+        /// </summary>
+        internal class SetOperation : Operation
         {
-            writer.Write(this.Version);
-            writer.Write(this.Id);
-            writer.Write(this.Value);
+            public string Value { get; set; }
+
+            protected override void DeserializeInternal(BinaryReader reader)
+            {
+                this.Version = reader.ReadInt16();
+                this.Id = reader.ReadInt64();
+                this.Value = reader.ReadString();
+            }
+
+            protected override void SerializeInternal(BinaryWriter writer)
+            {
+                writer.Write(this.Version);
+                writer.Write(this.Id);
+                writer.Write(this.Value ?? string.Empty);
+            }
+
+            public override void Apply(DistributedJournal journal)
+            {
+                using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(journal.table.Session))
+                {
+                    journal.table.AddOrUpdate(Guid.Empty, this.Value ?? string.Empty);
+                    tx.Commit(CommitTransactionGrbit.None);
+                }
+
+            }
         }
     }
 }

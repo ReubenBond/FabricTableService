@@ -10,6 +10,7 @@
 namespace FabricTableService
 {
     using System;
+    using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -61,7 +62,11 @@ namespace FabricTableService
                         result.HasValue ? result.Value.ToString() : "Value does not exist.");
 
                     await myDictionary.AddOrUpdateAsync(tx, "Counter-1", 0, (k, v) => ++v);
-                    
+
+                    ServiceEventSource.Current.ServiceMessage(this, "Initial value: " + journal.GetValue());
+                    journal.SetValue(tx, DateTime.Now.ToString(CultureInfo.InvariantCulture));
+                    ServiceEventSource.Current.ServiceMessage(this, "Final value: " + journal.GetValue());
+
                     await tx.CommitAsync();
                 }
 
