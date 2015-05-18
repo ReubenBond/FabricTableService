@@ -1,4 +1,4 @@
-﻿namespace FabricTableService.Journal
+﻿namespace FabricTableService.Journal.Database
 {
     using System;
     using System.Collections.Generic;
@@ -13,7 +13,7 @@
     /// <summary>
     /// The esent sample.
     /// </summary>
-    public class PersistentTable : IDisposable
+    public class PersistentTable<TKey, TValue> : IDisposable
     {
         /// <summary>
         /// The primary index name.
@@ -24,6 +24,11 @@
         /// The maximum possible <see cref="Guid"/> value.
         /// </summary>
         private static readonly Guid MaxGuid = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
+
+        /// <summary>
+        /// The converters.
+        /// </summary>
+        private static readonly DatabaseTypeConverters<TKey, TValue> Converters = new DatabaseTypeConverters<TKey, TValue>();
 
         /// <summary>
         /// The key column.
@@ -50,6 +55,9 @@
         /// </summary>
         private Instance instance;
 
+        /// <summary>
+        /// Initializes static members of the <see cref="PersistentTable"/> class.
+        /// </summary>
         static PersistentTable()
         {
             SystemParameters.MaxInstances = 1024;
@@ -203,63 +211,17 @@
                 });
             return completion.Task;
         }
-/*
-        /// <summary>
-        /// The run.
-        /// </summary>
-        public void Run()
-        {
-            using (var tx = new Transaction(this))
-            {
-                Debug.WriteLine("Inserting values into database");
-                this.AddOrUpdate(Guid.NewGuid(), "SO RANDOM!!! " + Guid.NewGuid());
-                tx.Commit();
-            }
 
-            // Retrieve a column from the record. Here we move to the first record with JetMove. By using
-            // JetMoveNext it is possible to iterate through all records in a table. Use JetMakeKey and
-            // JetSeek to move to a particular record.
-            Api.JetMove(this.session, this.table, JET_Move.First, MoveGrbit.None);
-            var value = Api.RetrieveColumnAsString(this.session, this.table, this.valueColumn, Encoding.Unicode);
-            Debug.WriteLine("First value: {0}", value);
-
-            Debug.WriteLine("All rows:");
-            Api.MoveBeforeFirst(this.session, this.table);
-            while (Api.TryMoveNext(this.session, this.table))
-            {
-                var key = Api.RetrieveColumnAsGuid(this.session, this.table, this.keyColumn);
-                if (!key.HasValue)
-                {
-                    continue;
-                }
-
-                var val = Api.RetrieveColumnAsString(
-                    this.session,
-                    this.table,
-                    this.valueColumn,
-                    Encoding.Unicode);
-                var row = new KeyValuePair<Guid, string>(key.Value, val);
-
-                Debug.WriteLine("{0} => '{1}'", row.Key, row.Value);
-            }
-
-            Debug.WriteLine("First N rows");
-            foreach (var row in this.GetRange())
-            {
-                Debug.WriteLine("{0} => '{1}'", row.Key, row.Value);
-            }
-        }*/
-
-        public bool TryGetValue(Guid key, out string value)
+        public bool TryGetValue(TKey key, out TValue value)
         {
             value = this.GetInternal(key);
             return value != null;
         }
 
-        public string AddOrUpdate(Guid key, Func<Guid, string> addFunc, Func<Guid, string, string> updateFunc)
+        public TValue AddOrUpdate(TKey key, Func<TKey, TValue> addFunc, Func<TKey, TValue, TValue> updateFunc)
         {
             var existing = this.GetInternal(key);
-            string newValue;
+            TValue newValue;
             if (existing != null)
             {
                 newValue = updateFunc(key, existing);
@@ -279,7 +241,7 @@
         /// </summary>
         /// <param name="key">The key.</param>
         /// <param name="value">The updated value.</param>
-        public void AddOrUpdate(Guid key, string value)
+        public void AddOrUpdate(TKey key, TValue value)
         {
             if (this.Contains(key))
             {
@@ -291,7 +253,7 @@
             }
         }
 
-        public string AddOrUpdate(Guid key, string value, Func<Guid, string, string> updateFunc)
+        public TValue AddOrUpdate(TKey key, TValue value, Func<TKey, TValue, TValue> updateFunc)
         {
             var existing = this.GetInternal(key);
             if (existing != null)
@@ -307,7 +269,7 @@
             return value;
         }
 
-        public string GetOrAdd(Guid key, Func<Guid, string> addFunc)
+        public TValue GetOrAdd(TKey key, Func<TKey, TValue> addFunc)
         {
             var existing = this.GetInternal(key);
             if (existing != null)
@@ -320,7 +282,7 @@
             return value;
         }
 
-        public string GetOrAdd(Guid key, string value)
+        public TValue GetOrAdd(TKey key, TValue value)
         {
             var existing = this.GetInternal(key);
             if (existing != null)
@@ -332,12 +294,12 @@
             return value;
         }
 
-        public void Update(Guid key, string value)
+        public void Update(TKey key, TValue value)
         {
             this.UpdateRow(key, value, JET_prep.Replace);
         }
 
-        public void Add(Guid key, string value)
+        public void Add(TKey key, TValue value)
         {
             this.UpdateRow(key, value, JET_prep.Insert);
         }
@@ -351,10 +313,10 @@
         /// <returns>
         /// <see langword="true"/> if the key will be deleted when the transaction commits, <see langword="false"/> otherwise.
         /// </returns>
-        public bool Contains(Guid key)
+        public bool Contains(TKey key)
         {
             Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Api.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
+            Converters.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
 
             if (!Api.TrySeek(this.session, this.table, SeekGrbit.SeekEQ))
             {
@@ -364,9 +326,9 @@
             return true;
         }
 
-        public string Get(Guid key)
+        public TValue Get(TKey key)
         {
-            string value;
+            TValue value;
             if (!this.TryGetValue(key, out value))
             {
                 throw new KeyNotFoundException(key.ToString());
@@ -381,9 +343,9 @@
         /// <param name="key">
         /// The key to delete.
         /// </param>
-        public void Remove(Guid key)
+        public void Remove(TKey key)
         {
-            string value;
+            TValue value;
             if (!this.TryRemove(key, out value))
             {
                 throw new KeyNotFoundException(key.ToString());
@@ -399,18 +361,18 @@
         /// <returns>
         /// <see langword="true"/> if the key will be deleted when the transaction commits, <see langword="false"/> otherwise.
         /// </returns>
-        public bool TryRemove(Guid key, out string value)
+        public bool TryRemove(TKey key, out TValue value)
         {
             Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Api.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
+            Converters.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
 
             if (!Api.TrySeek(this.session, this.table, SeekGrbit.SeekEQ))
             {
-                value = null;
+                value = default(TValue);
                 return false;
             }
 
-            value = Api.RetrieveColumnAsString(this.session, this.table, this.valueColumn, Encoding.Unicode);
+            value = (TValue)Converters.RetrieveValueColumn(this.session, this.table, this.valueColumn);
             Api.JetDelete(this.session, this.table);
             return true;
         }
@@ -430,24 +392,21 @@
         /// <returns>
         /// The rows matching the specified criteria.
         /// </returns>
-        public IEnumerable<KeyValuePair<Guid, string>> GetRange(
-            Guid? lowerBound = default(Guid?),
-            Guid? upperBound = default(Guid?),
+        public IEnumerable<KeyValuePair<TKey, TValue>> GetRange(
+            TKey lowerBound = default(TKey),
+            TKey upperBound = default(TKey),
             long maxValues = long.MaxValue)
         {
-            var lower = lowerBound ?? Guid.Empty;
-            var upper = upperBound ?? MaxGuid;
-
             // Set the index and seek to the lower bound, if it has been specified.
             Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Api.MakeKey(this.session, this.table, lower, MakeKeyGrbit.NewKey);
+            Converters.MakeKey(this.session, this.table, lowerBound, MakeKeyGrbit.NewKey);
             if (!Api.TrySeek(this.session, this.table, SeekGrbit.SeekGE))
             {
                 yield break;
             }
 
             // Set the upper limit of the index scan.
-            Api.MakeKey(this.session, this.table, upper, MakeKeyGrbit.NewKey | MakeKeyGrbit.FullColumnEndLimit);
+            Converters.MakeKey(this.session, this.table, upperBound, MakeKeyGrbit.NewKey | MakeKeyGrbit.FullColumnEndLimit);
             const SetIndexRangeGrbit RangeFlags = SetIndexRangeGrbit.RangeInclusive | SetIndexRangeGrbit.RangeUpperLimit;
             if (!Api.TrySetIndexRange(this.session, this.table, RangeFlags))
             {
@@ -455,17 +414,13 @@
             }
 
             // Iterate over the ranged index.
-            var hasNext = false;
+            bool hasNext;
             do
             {
-                var key = Api.RetrieveColumnAsGuid(this.session, this.table, this.keyColumn);
-                if (!key.HasValue)
-                {
-                    continue;
-                }
-
-                var value = Api.RetrieveColumnAsString(this.session, this.table, this.valueColumn, Encoding.Unicode);
-                yield return new KeyValuePair<Guid, string>(key.Value, value);
+                var key = (TKey)Converters.RetrieveKeyColumn(this.session, this.table, this.keyColumn);
+                
+                var value = (TValue)Converters.RetrieveValueColumn(this.session, this.table, this.valueColumn);
+                yield return new KeyValuePair<TKey, TValue>(key, value);
                 --maxValues;
                 hasNext = Api.TryMoveNext(this.session, this.table);
             }
@@ -603,8 +558,8 @@
             using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(session))
             {
                 JET_COLUMNID column;
-                var keyDefinition = new JET_COLUMNDEF { coltyp = VistaColtyp.GUID };
-                var valueDefinition = new JET_COLUMNDEF { coltyp = JET_coltyp.LongText, cp = JET_CP.Unicode };
+                var keyDefinition = new JET_COLUMNDEF { coltyp = Converters.KeyColtyp };
+                var valueDefinition = new JET_COLUMNDEF { coltyp = Converters.ValueColtyp };
 
                 // Add a key and a value column.
                 Api.JetAddColumn(session, table, "key", keyDefinition, null, 0, out column);
@@ -639,27 +594,27 @@
             return new Table(this.session, database, this.TableName, OpenTableGrbit.None);
         }
 
-        private void UpdateRow(Guid key, string value, JET_prep prep)
+        private void UpdateRow(TKey key, TValue value, JET_prep prep)
         {
             using (var update = new Update(this.session, this.table, prep))
             {
-                Api.SetColumn(this.session, this.table, this.keyColumn, key);
-                Api.SetColumn(this.session, this.table, this.valueColumn, value, Encoding.Unicode);
+                Converters.SetKeyColumn(this.session, this.table, this.keyColumn, key);
+                Converters.SetValueColumn(this.session, this.table, this.valueColumn, value);
                 update.Save();
             }
         }
 
-        private string GetInternal(Guid key)
+        private TValue GetInternal(TKey key)
         {
             Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Api.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
+            Converters.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
 
             if (Api.TrySeek(this.session, this.table, SeekGrbit.SeekEQ))
             {
-                return Api.RetrieveColumnAsString(this.session, this.table, this.valueColumn, Encoding.Unicode);
+                return (TValue)Converters.RetrieveValueColumn(this.session, this.table, this.valueColumn);
             }
 
-            return null;
+            return default(TValue);
         }
     }
 }

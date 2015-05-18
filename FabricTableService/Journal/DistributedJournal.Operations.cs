@@ -19,7 +19,7 @@ namespace FabricTableService.Journal
     /// <summary>
     /// The distributed journal.
     /// </summary>
-    public partial class DistributedJournal
+    public partial class DistributedJournal<TKey, TValue>
     {
         /// <summary>
         /// The operation.
@@ -35,7 +35,11 @@ namespace FabricTableService.Journal
             /// The constructors.
             /// </summary>
             protected static readonly Dictionary<OperationType, Func<Operation>> constructors =
-                new Dictionary<OperationType, Func<Operation>> { { OperationType.Set, () => new SetOperation() } };
+                new Dictionary<OperationType, Func<Operation>>
+                {
+                    { OperationType.Set, () => new SetOperation() },
+                    { OperationType.Remove, () => new RemoveOperation() }
+                };
 
             /// <summary>
             /// The constructors.
@@ -62,7 +66,7 @@ namespace FabricTableService.Journal
             /// <summary>
             /// The type id.
             /// </summary>
-            public enum OperationType : uint
+            public enum OperationType : ushort
             {
                 /// <summary>
                 /// The none.
@@ -72,7 +76,12 @@ namespace FabricTableService.Journal
                 /// <summary>
                 /// The set.
                 /// </summary>
-                Set = 1
+                Set = 1,
+
+                /// <summary>
+                /// Removes an item.
+                /// </summary>
+                Remove
             }
 
 			/// <summary>
@@ -109,13 +118,12 @@ namespace FabricTableService.Journal
             /// </exception>
             public static Operation Deserialize(byte[] bytes)
             {
-
                 try
                 {
                     using (var mem = new MemoryStream(bytes))
                     using (var br = new BinaryReader(mem))
                     {
-                        var id = (OperationType)br.ReadInt32();
+                        var id = (OperationType)br.ReadUInt16();
                         Func<Operation> constructor;
 
                         if (!constructors.TryGetValue(id, out constructor))
@@ -141,7 +149,7 @@ namespace FabricTableService.Journal
                 using (var mem = new MemoryStream())
                 using (var writer = new BinaryWriter(mem))
                 {
-                    writer.Write((uint)this.Type);
+                    writer.Write((ushort)this.Type);
 					this.SerializeInternal(writer);
                     return mem.ToArray();
                 }
@@ -149,7 +157,7 @@ namespace FabricTableService.Journal
 
             protected abstract void SerializeInternal(BinaryWriter writer);
 
-            public abstract void Apply(DistributedJournal journal);
+            public abstract void Apply(DistributedJournal<TKey,TValue> journal);
         }
 
         /// <summary>
@@ -157,30 +165,66 @@ namespace FabricTableService.Journal
         /// </summary>
         internal class SetOperation : Operation
         {
-            public string Value { get; set; }
+            public TValue Value { get; set; }
+
+            public TKey Key { get; set; }
 
             protected override void DeserializeInternal(BinaryReader reader)
             {
                 this.Version = reader.ReadInt16();
                 this.Id = reader.ReadInt64();
-                this.Value = reader.ReadString();
+                this.Key = reader.ReadObject<TKey>();
+                this.Value = reader.ReadObject<TValue>();
             }
 
             protected override void SerializeInternal(BinaryWriter writer)
             {
                 writer.Write(this.Version);
                 writer.Write(this.Id);
-                writer.Write(this.Value ?? string.Empty);
+                writer.WriteObject(this.Key);
+                writer.WriteObject(this.Value);
             }
 
-            public override void Apply(DistributedJournal journal)
+            public override void Apply(DistributedJournal<TKey, TValue> journal)
             {
                 using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(journal.table.Session))
                 {
-                    journal.table.AddOrUpdate(Guid.Empty, this.Value ?? string.Empty);
+                    journal.table.AddOrUpdate(this.Key, this.Value);
                     tx.Commit(CommitTransactionGrbit.None);
                 }
 
+            }
+        }
+
+        /// <summary>
+        /// The set operation.
+        /// </summary>
+        internal class RemoveOperation : Operation
+        {
+            public TKey Key { get; set; }
+
+            protected override void DeserializeInternal(BinaryReader reader)
+            {
+                this.Version = reader.ReadInt16();
+                this.Id = reader.ReadInt64();
+                this.Key = reader.ReadObject<TKey>();
+            }
+
+            protected override void SerializeInternal(BinaryWriter writer)
+            {
+                writer.Write(this.Version);
+                writer.Write(this.Id);
+                writer.WriteObject(this.Key);
+            }
+
+            public override void Apply(DistributedJournal<TKey, TValue> journal)
+            {
+                using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(journal.table.Session))
+                {
+                    TValue value;
+                    journal.table.TryRemove(this.Key, out value);
+                    tx.Commit(CommitTransactionGrbit.None);
+                }
             }
         }
     }

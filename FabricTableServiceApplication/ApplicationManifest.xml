@@ -15,7 +15,7 @@
          The attribute ServiceTypeName below must match the name defined in the imported ServiceManifest.xml file. -->
     <Service Name="FabricTableService">
       <StatefulService ServiceTypeName="FabricTableServiceType" TargetReplicaSetSize="3" MinReplicaSetSize="2">
-        <UniformInt64Partition PartitionCount="20" LowKey="-9223372036854775808" HighKey="9223372036854775807" />
+        <UniformInt64Partition PartitionCount="2" LowKey="-9223372036854775808" HighKey="9223372036854775807" />
       </StatefulService>
     </Service>
   </DefaultServices>

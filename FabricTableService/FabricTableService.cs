@@ -49,8 +49,10 @@ namespace FabricTableService
         {
             // TODO: Replace the following with your own logic.
             var myDictionary = await this.StateManager.GetOrAddAsync<IReliableDictionary<string, long>>("myDictionary");
-            var journal = await this.StateManager.GetOrAddAsync<DistributedJournal>("journal");
+            var journal = await this.StateManager.GetOrAddAsync<DistributedJournal<Guid, string>>("journal");
 
+            var partition = this.ServicePartition.PartitionInfo.Id;
+            int x = 100;
             while (!cancellationToken.IsCancellationRequested)
             {
                 using (var tx = this.StateManager.CreateTransaction())
@@ -63,14 +65,15 @@ namespace FabricTableService
 
                     await myDictionary.AddOrUpdateAsync(tx, "Counter-1", 0, (k, v) => ++v);
 
-                    ServiceEventSource.Current.ServiceMessage(this, "Initial value: " + journal.GetValue());
-                    journal.SetValue(tx, DateTime.Now.ToString(CultureInfo.InvariantCulture));
-                    ServiceEventSource.Current.ServiceMessage(this, "Final value: " + journal.GetValue());
+                    ServiceEventSource.Current.ServiceMessage(this, "Initial value: " + await journal.GetValue(Guid.Empty));
+                    await journal.SetValue(tx, Guid.Empty, DateTime.Now.ToString(CultureInfo.InvariantCulture));
+                    ServiceEventSource.Current.ServiceMessage(this, "Final value: " + await journal.GetValue(Guid.Empty));
 
                     await tx.CommitAsync();
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+                if (--x <= 0) break;
             }
         }
     }

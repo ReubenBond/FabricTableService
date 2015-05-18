@@ -9,6 +9,11 @@
 namespace FabricTableService.Journal
 {
     using System;
+    using System.Collections.Concurrent;
+    using System.Runtime.Serialization.Formatters.Binary;
+    using System.Threading.Tasks;
+
+    using global::FabricTableService.Journal.Database;
 
     using Microsoft.Isam.Esent.Interop;
     using Microsoft.ServiceFabric.Data;
@@ -16,13 +21,17 @@ namespace FabricTableService.Journal
     /// <summary>
     /// The distributed journal.
     /// </summary>
-    public partial class DistributedJournal
+    public partial class DistributedJournal<TKey, TValue>
     {
         /// <summary>
         /// The table.
         /// </summary>
-        private PersistentTable table;
+        private PersistentTable<TKey, TValue> table;
 
+        private readonly ConcurrentDictionary<long, DbTransaction> inFlightTransactions = new ConcurrentDictionary<long, DbTransaction>();
+
+        private readonly OperationPump<object> operationPump = new OperationPump<object>();
+        
         /// <summary>
         /// The set value.
         /// </summary>
@@ -32,15 +41,38 @@ namespace FabricTableService.Journal
         /// <param name="value">
         /// The value.
         /// </param>
-        public void SetValue(ITransaction tx, string value)
+        public async Task SetValue(ITransaction tx, TKey key, TValue value)
         {
             var transaction = tx.GetTransaction();
-            var initialValue = this.GetValue();
-            transaction.AddOperation(
-                new SetOperation { Value = initialValue }.Serialize(), 
-                new SetOperation { Value = value }.Serialize(), 
-                null, 
-                this.Name);
+            /*this.inFlightTransactions.TryAdd(
+                transaction.Id,
+                new DbTransaction
+                {
+                    DatabaseTransaction = new Transaction(this.table.Session),
+                    ReplicatorTransaction = transaction
+                });*/
+
+            Operation undo, redo;
+            var initialValue = await this.GetValue(key);
+            if (initialValue == null)
+            {
+                undo = new RemoveOperation { Key = key };
+            }
+            else
+            {
+                undo = new SetOperation { Key = key, Value = initialValue };
+            }
+
+            if (value == null)
+            {
+                redo = new RemoveOperation { Key = key };
+            }
+            else
+            {
+                redo = new SetOperation { Key = key, Value = value };
+            }
+
+            transaction.AddOperation(undo.Serialize(), redo.Serialize(), null, this.Name);
         }
 
         /// <summary>
@@ -49,15 +81,21 @@ namespace FabricTableService.Journal
         /// <returns>
         /// The <see cref="string"/>.
         /// </returns>
-        public string GetValue()
+        public async Task<TValue> GetValue(TKey key)
         {
-            using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(this.table.Session))
-            {
-                string result;
-                this.table.TryGetValue(Guid.Empty, out result);
-                tx.Commit(CommitTransactionGrbit.None);
-                return result;
-            }
+            return (TValue)await this.operationPump.Invoke(
+                () =>
+                {
+                    TValue result;
+                    this.table.TryGetValue(key, out result);
+                    return result;
+                });
+        }
+
+        internal struct DbTransaction
+        {
+            public System.Fabric.Replication.Transaction ReplicatorTransaction { get; set; }
+            public Microsoft.Isam.Esent.Interop.Transaction DatabaseTransaction { get; set; }
         }
     }
 }
