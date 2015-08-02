@@ -4,7 +4,7 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-namespace FabricTableService.Journal
+namespace FabricTableService.Utilities
 {
     using System;
     using System.IO;
@@ -13,8 +13,14 @@ namespace FabricTableService.Journal
     /// <summary>
     /// The binary serialization extensions.
     /// </summary>
-    internal static class BinarySerializationExtensions
+    public static class BinarySerializationExtensions
     {
+        /// <summary>
+        /// Writes the specified value to the <paramref name="writer"/>.
+        /// </summary>
+        /// <typeparam name="T">The value type.</typeparam>
+        /// <param name="writer">The writer.</param>
+        /// <param name="value">The value to write.</param>
         public static void WriteObject<T>(this BinaryWriter writer, T value)
         {
             var boxed = (object)value;
@@ -81,11 +87,11 @@ namespace FabricTableService.Journal
         }
 
         /// <summary>
-        /// Reads an object from the 
+        /// Reads an object from the <paramref name="reader"/>.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="reader"></param>
-        /// <returns></returns>
+        /// <typeparam name="T">The type to read.</typeparam>
+        /// <param name="reader">The reader.</param>
+        /// <returns>The object which was read.</returns>
         public static T ReadObject<T>(this BinaryReader reader)
         {
             object result;

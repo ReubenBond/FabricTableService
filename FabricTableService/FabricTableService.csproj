@@ -69,7 +69,7 @@
     <Reference Include="System.ServiceModel" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Journal\BinarySerializationExtensions.cs" />
+    <Compile Include="Utilities\BinarySerializationExtensions.cs" />
     <Compile Include="Journal\Database\ColumnConverter.cs" />
     <Compile Include="Journal\DistributedJournal.cs" />
     <Compile Include="Journal\DistributedJournal.StateProvider.cs" />

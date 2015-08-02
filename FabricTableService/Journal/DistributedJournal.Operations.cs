@@ -12,13 +12,23 @@ namespace FabricTableService.Journal
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Threading;
 
-    using Microsoft.Isam.Esent.Interop;
+    using global::FabricTableService.Utilities;
+
+    using ESENT = Microsoft.Isam.Esent.Interop;
+    using System.Fabric.Replication;
+
+    using global::FabricTableService.Journal.Database;
 
     /// <summary>
     /// The distributed journal.
     /// </summary>
+    /// <typeparam name="TKey">
+    /// The key type.
+    /// </typeparam>
+    /// <typeparam name="TValue">
+    /// The value type.
+    /// </typeparam>
     public partial class DistributedJournal<TKey, TValue>
     {
         /// <summary>
@@ -26,15 +36,11 @@ namespace FabricTableService.Journal
         /// </summary>
         public abstract class Operation
         {
-			/// <summary>
-			/// The sequence number counter.
-			/// </summary>
-            private static int sequence;
-
             /// <summary>
             /// The constructors.
             /// </summary>
-            protected static readonly Dictionary<OperationType, Func<Operation>> constructors =
+            // ReSharper disable once StaticMemberInGenericType
+            protected static readonly Dictionary<OperationType, Func<Operation>> Constructors =
                 new Dictionary<OperationType, Func<Operation>>
                 {
                     { OperationType.Set, () => new SetOperation() },
@@ -42,27 +48,23 @@ namespace FabricTableService.Journal
                 };
 
             /// <summary>
-            /// The constructors.
+            /// The operation types.
             /// </summary>
-            protected static readonly Dictionary<Type, OperationType> operationTypes = new Dictionary<Type, OperationType>();
-
-            static Operation()
-            {
-                foreach (var constructor in constructors)
-                {
-                    var type = constructor.Value().GetType();
-                    operationTypes[type] = constructor.Key;
-                }
-            }
+            // ReSharper disable once StaticMemberInGenericType
+            protected static readonly Dictionary<Type, OperationType> OperationTypes = new Dictionary<Type, OperationType>();
 
             /// <summary>
-            /// Initializes a new instance of the <see cref="Operation"/> class.
+            /// Initializes static members of the <see cref="Operation"/> class.
             /// </summary>
-            protected Operation()
+            static Operation()
             {
-                this.Id = Interlocked.Increment(ref sequence);
+                foreach (var constructor in Constructors)
+                {
+                    var type = constructor.Value().GetType();
+                    OperationTypes[type] = constructor.Key;
+                }
             }
-
+            
             /// <summary>
             /// The type id.
             /// </summary>
@@ -84,14 +86,14 @@ namespace FabricTableService.Journal
                 Remove
             }
 
-			/// <summary>
-			/// Gets the type of this operation.
-			/// </summary>
+            /// <summary>
+            /// Gets the type of this operation.
+            /// </summary>
             public OperationType Type
             {
                 get
                 {
-                    return operationTypes[this.GetType()];
+                    return OperationTypes[this.GetType()];
                 }
             }
 
@@ -103,7 +105,7 @@ namespace FabricTableService.Journal
             /// <summary>
             /// Gets or sets the version.
             /// </summary>
-            public short Version { get; set; }
+            public long Version { get; set; }
 
             /// <summary>
             /// The deserialize.
@@ -115,6 +117,7 @@ namespace FabricTableService.Journal
             /// The <see cref="Operation"/>.
             /// </returns>
             /// <exception cref="ApplicationException">
+            /// The operation type was unknown.
             /// </exception>
             public static Operation Deserialize(byte[] bytes)
             {
@@ -123,12 +126,12 @@ namespace FabricTableService.Journal
                     using (var mem = new MemoryStream(bytes))
                     using (var br = new BinaryReader(mem))
                     {
-                        var id = (OperationType)br.ReadUInt16();
+                        var type = (OperationType)br.ReadUInt16();
                         Func<Operation> constructor;
 
-                        if (!constructors.TryGetValue(id, out constructor))
+                        if (!Constructors.TryGetValue(type, out constructor))
                         {
-                            throw new NotSupportedException("Unknown operation type " + id);
+                            throw new NotSupportedException("Unknown operation type " + type);
                         }
 
                         var result = constructor();
@@ -142,22 +145,39 @@ namespace FabricTableService.Journal
                 }
             }
 
-            protected abstract void DeserializeInternal(BinaryReader reader);
-
+            /// <summary>
+            /// Serializes this operation.
+            /// </summary>
+            /// <returns>The serialized operation.</returns>
             public byte[] Serialize()
             {
                 using (var mem = new MemoryStream())
                 using (var writer = new BinaryWriter(mem))
                 {
                     writer.Write((ushort)this.Type);
-					this.SerializeInternal(writer);
+                    this.SerializeInternal(writer);
                     return mem.ToArray();
                 }
             }
 
-            protected abstract void SerializeInternal(BinaryWriter writer);
+            /// <summary>
+            /// Applies the operation to the journal.
+            /// </summary>
+            /// <param name="journal">The journal.</param>
+            /// <returns>The result of applying the operation.</returns>
+            public abstract object Apply(bool commit, bool apply, ESENT.Transaction transaction, PersistentTable<TKey, TValue> table);
 
-            public abstract void Apply(DistributedJournal<TKey,TValue> journal);
+            /// <summary>
+            /// Deserializes operation-specific fields.
+            /// </summary>
+            /// <param name="reader">The reader.</param>
+            protected abstract void DeserializeInternal(BinaryReader reader);
+
+            /// <summary>
+            /// Serializes operation-specific fields.
+            /// </summary>
+            /// <param name="writer">The writer.</param>
+            protected abstract void SerializeInternal(BinaryWriter writer);
         }
 
         /// <summary>
@@ -165,18 +185,47 @@ namespace FabricTableService.Journal
         /// </summary>
         internal class SetOperation : Operation
         {
+            /// <summary>
+            /// Gets or sets the value.
+            /// </summary>
             public TValue Value { get; set; }
 
+            /// <summary>
+            /// Gets or sets the key.
+            /// </summary>
             public TKey Key { get; set; }
 
+            /// <summary>
+            /// Applies the operation to the journal.
+            /// </summary>
+            /// <param name="journal">The journal.</param>
+            public override object Apply(bool commit, bool apply, ESENT.Transaction transaction, PersistentTable<TKey, TValue> table)
+            {
+                using (var tx = new ESENT.Transaction(table.Session))
+                {
+                    table.AddOrUpdate(this.Key, this.Value);
+                    tx.Commit(ESENT.CommitTransactionGrbit.None);
+                }
+
+                return null;
+            }
+
+            /// <summary>
+            /// Deserializes operation-specific fields.
+            /// </summary>
+            /// <param name="reader">The reader.</param>
             protected override void DeserializeInternal(BinaryReader reader)
             {
-                this.Version = reader.ReadInt16();
+                this.Version = reader.ReadInt64();
                 this.Id = reader.ReadInt64();
                 this.Key = reader.ReadObject<TKey>();
                 this.Value = reader.ReadObject<TValue>();
             }
 
+            /// <summary>
+            /// Serializes operation-specific fields.
+            /// </summary>
+            /// <param name="writer">The writer.</param>
             protected override void SerializeInternal(BinaryWriter writer)
             {
                 writer.Write(this.Version);
@@ -184,47 +233,55 @@ namespace FabricTableService.Journal
                 writer.WriteObject(this.Key);
                 writer.WriteObject(this.Value);
             }
-
-            public override void Apply(DistributedJournal<TKey, TValue> journal)
-            {
-                using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(journal.table.Session))
-                {
-                    journal.table.AddOrUpdate(this.Key, this.Value);
-                    tx.Commit(CommitTransactionGrbit.None);
-                }
-
-            }
         }
 
         /// <summary>
-        /// The set operation.
+        /// Represents a remove operation.
         /// </summary>
         internal class RemoveOperation : Operation
         {
+            /// <summary>
+            /// Gets or sets the key.
+            /// </summary>
             public TKey Key { get; set; }
 
+            /// <summary>
+            /// Applies the operation to the journal.
+            /// </summary>
+            /// <param name="table">The journal.</param>
+            public override object Apply(bool commit, bool apply, ESENT.Transaction transaction, PersistentTable<TKey, TValue> table)
+            {
+                transaction.Begin();
+                using (var tx = transaction)
+                {
+                    TValue value;
+                    var result = table.TryRemove(this.Key, out value);
+                    tx.Commit(ESENT.CommitTransactionGrbit.None);
+                    return result;
+                }
+
+            }
+
+            /// <summary>
+            /// Deserializes operation-specific fields.
+            /// </summary>
+            /// <param name="reader">The reader.</param>
             protected override void DeserializeInternal(BinaryReader reader)
             {
-                this.Version = reader.ReadInt16();
+                this.Version = reader.ReadInt64();
                 this.Id = reader.ReadInt64();
                 this.Key = reader.ReadObject<TKey>();
             }
 
+            /// <summary>
+            /// Serializes operation-specific fields.
+            /// </summary>
+            /// <param name="writer">The writer.</param>
             protected override void SerializeInternal(BinaryWriter writer)
             {
                 writer.Write(this.Version);
                 writer.Write(this.Id);
                 writer.WriteObject(this.Key);
-            }
-
-            public override void Apply(DistributedJournal<TKey, TValue> journal)
-            {
-                using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(journal.table.Session))
-                {
-                    TValue value;
-                    journal.table.TryRemove(this.Key, out value);
-                    tx.Commit(CommitTransactionGrbit.None);
-                }
             }
         }
     }

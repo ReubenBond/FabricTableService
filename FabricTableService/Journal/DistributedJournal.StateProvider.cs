@@ -25,6 +25,7 @@ namespace FabricTableService.Journal
 
     using Transaction = System.Fabric.Replication.Transaction;
     using TransactionBase = System.Fabric.Replication.TransactionBase;
+    using ESENT = Microsoft.Isam.Esent.Interop;
 
     /// <summary>
     /// The distributed journal.
@@ -106,8 +107,8 @@ namespace FabricTableService.Journal
             var workDirectory = this.replicator.InitializationParameters.CodePackageActivationContext.WorkDirectory;
             var databaseDirectory = Path.Combine(workDirectory, this.partitionId, "journal");
             Directory.CreateDirectory(databaseDirectory);
-            this.table = new PersistentTable<TKey, TValue>(databaseDirectory, "db.edb", tableName);
-            this.table.Initialize();
+            this.tablePool = new PersistentTablePool<TKey, TValue>(databaseDirectory, "db.edb", tableName);
+            this.tablePool.Initialize();
             this.operationPump.Start();
             return Task.FromResult(0);
         }
@@ -121,11 +122,11 @@ namespace FabricTableService.Journal
         Task IStateProvider2.CloseAsync()
         {
             Debug.WriteLine("[" + this.partitionId + "] " + "CloseAsync()");
-            var tab = this.table;
+            var tab = this.tablePool;
             if (tab != null)
             {
-                tab.Dispose();
-                this.table = null;
+                ((IDisposable)tab).Dispose();
+                this.tablePool = null;
             }
 
             return Task.FromResult(0);
@@ -283,7 +284,7 @@ namespace FabricTableService.Journal
         IOperationDataStream IStateProvider2.GetCurrentState()
         {
             Debug.WriteLine("[" + this.partitionId + "] " + "GetCurrentState()");
-            return new OperationDataStream(this.table);
+            return new CopyStream(this.tablePool);
         }
 
         /// <summary>
@@ -381,26 +382,73 @@ namespace FabricTableService.Journal
         /// The <see cref="Task"/>.
         /// </returns>
         Task<object> IStateProvider2.ApplyAsync(
-            long lsn, 
-            TransactionBase transactionBase, 
-            byte[] data, 
+            long lsn,
+            TransactionBase transactionBase,
+            byte[] data,
             ApplyContext applyContext)
         {
             return this.operationPump.Invoke(
                 () =>
                 {
+                    var context = default(OperationContext);
                     var operation = Operation.Deserialize(data);
+                    if (IsPrimaryOperation(applyContext))
+                    {
+                        this.inFlightOperations.TryGetValue(operation.Id, out context);
+                    }
 
                     Debug.WriteLine(
-                        "[" + this.partitionId + "] " + "ApplyAsync(lsn: {0}, tx: {1}, op: {2} (length: {3}), context: {4})", 
-                        lsn, 
-                        transactionBase.Id, 
-                        JsonConvert.SerializeObject(operation), 
-                            data == null ? 0 : data.Length, 
-                            applyContext);
-                    operation.Apply(this);
+                        "[" + this.partitionId + "] "
+                        + "ApplyAsync(lsn: {0}, tx: {1}, op: {2} (length: {3}), context: {4})",
+                        lsn,
+                        transactionBase.Id,
+                        JsonConvert.SerializeObject(operation),
+                        data == null ? 0 : data.Length,
+                        applyContext);
+
+                    try
+                    {
+                        PersistentTable<TKey, TValue> table;
+                        var transaction = context.DatabaseTransaction;
+                        table = context.Table;
+                        if (context.Table == null )
+                        {
+                            table = this.tablePool.Take();
+                            transaction = new ESENT.Transaction(table.Session);
+                        }
+                            var result = operation.Apply(true, applyContext != ApplyContext.PrimaryRedo, transaction, table);
+
+                        if (applyContext == ApplyContext.PrimaryRedo && context.SuccessCallback != null)
+                        {
+                            context.SuccessCallback(result);
+                            context.SuccessCallback = null;
+                            context.FailureCallback = null;
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        if (context.FailureCallback != null)
+                        {
+                            context.FailureCallback(exception);
+                            context.SuccessCallback = null;
+                            context.FailureCallback = null;
+                        }
+                    }
+                    finally
+                    {
+                        if (IsPrimaryOperation(applyContext))
+                        {
+                            this.inFlightOperations.TryRemove(operation.Id, out context);
+                        }
+                    }
+
                     return default(object);
                 });
+        }
+
+        private static bool IsPrimaryOperation(ApplyContext applyContext)
+        {
+            return ((int)applyContext & (int)ApplyContext.PRIMARY) == (int)ApplyContext.PRIMARY;
         }
 
         /// <summary>
@@ -415,13 +463,13 @@ namespace FabricTableService.Journal
         }
 
         /// <summary>
-        /// The get children.
+        /// Returns the child state providers.
         /// </summary>
         /// <param name="name">
-        /// The name.
+        /// The state provider name.
         /// </param>
         /// <returns>
-        /// The <see cref="IEnumerable"/>.
+        /// The child state providers.
         /// </returns>
         IEnumerable<IStateProvider2> IStateProvider2.GetChildren(Uri name)
         {
@@ -430,24 +478,30 @@ namespace FabricTableService.Journal
         }
 
         /// <summary>
-        /// The operation data stream.
+        /// Provides the stream of operations required to copy this store.
         /// </summary>
-        internal class OperationDataStream : IOperationDataStream
+        internal class CopyStream : IOperationDataStream
         {
             /// <summary>
             /// The values.
             /// </summary>
             private readonly IEnumerator<KeyValuePair<TKey, TValue>> values;
 
+            private PersistentTable<TKey, TValue> table;
+
+            private PersistentTablePool<TKey, TValue> pool;
+
             /// <summary>
-            /// Initializes a new instance of the <see cref="OperationDataStream"/> class.
+            /// Initializes a new instance of the <see cref="CopyStream"/> class.
             /// </summary>
             /// <param name="table">
             /// The table.
             /// </param>
-            public OperationDataStream(PersistentTable<TKey, TValue> table)
+            public CopyStream(PersistentTablePool<TKey, TValue> pool)
             {
-                this.values = table.GetRange().GetEnumerator();
+                this.pool = pool;
+                this.table = pool.Take();
+                this.values = this.table.GetRange().GetEnumerator();
             }
 
             /// <summary>
@@ -465,10 +519,14 @@ namespace FabricTableService.Journal
                 {
                     var element = this.values.Current;
                     var data =
-                        new OperationData(
-                            new SetOperation { Key = element.Key, Value = element.Value }
-                                .Serialize());
+                        new OperationData(new SetOperation { Key = element.Key, Value = element.Value }.Serialize());
                     return Task.FromResult(data);
+                }
+                
+                if (this.table != null)
+                {
+                    this.pool.Return(this.table);
+                    this.table = null;
                 }
 
                 return Task.FromResult(new OperationData());

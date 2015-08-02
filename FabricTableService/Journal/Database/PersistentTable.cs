@@ -1,78 +1,53 @@
 ﻿namespace FabricTableService.Journal.Database
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
-    using System.Text;
     using System.Threading.Tasks;
 
-    using Microsoft.Isam.Esent.Interop;
-    using Microsoft.Isam.Esent.Interop.Vista;
+    using ESENT = Microsoft.Isam.Esent.Interop;
 
-    /// <summary>
-    /// The esent sample.
-    /// </summary>
-    public class PersistentTable<TKey, TValue> : IDisposable
+    internal class PersistentTableConstants
     {
         /// <summary>
         /// The primary index name.
         /// </summary>
-        private const string PrimaryIndexName = "primary";
+        internal const string PrimaryIndexName = "primary";
+    }
 
+    public class PersistentTablePool<TKey, TValue> : IDisposable
+    {
+        private readonly ConcurrentBag<PersistentTable<TKey, TValue>> pool =
+            new ConcurrentBag<PersistentTable<TKey, TValue>>();
+        
         /// <summary>
-        /// The maximum possible <see cref="Guid"/> value.
+        /// Initializes static members of the <see cref="PersistentTable{TKey,TValue}"/> class.
         /// </summary>
-        private static readonly Guid MaxGuid = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
+        static PersistentTablePool()
+        {
+            ESENT.SystemParameters.MaxInstances = 1024;
+        }
 
         /// <summary>
         /// The converters.
         /// </summary>
-        private static readonly DatabaseTypeConverters<TKey, TValue> Converters = new DatabaseTypeConverters<TKey, TValue>();
-
+        internal static readonly DatabaseTypeConverters<TKey, TValue> Converters = new DatabaseTypeConverters<TKey, TValue>();
+        
         /// <summary>
-        /// The key column.
+        /// Initializes a new instance of the <see cref="PersistentTable{TKey,TValue}"/> class.
         /// </summary>
-        private JET_COLUMNID keyColumn;
-
-        /// <summary>
-        /// The value column.
-        /// </summary>
-        private JET_COLUMNID valueColumn;
-
-        /// <summary>
-        /// The table.
-        /// </summary>
-        private Table table;
-
-        /// <summary>
-        /// The session.
-        /// </summary>
-        private Session session;
-
-        /// <summary>
-        /// The instance.
-        /// </summary>
-        private Instance instance;
-
-        /// <summary>
-        /// Initializes static members of the <see cref="PersistentTable"/> class.
-        /// </summary>
-        static PersistentTable()
-        {
-            SystemParameters.MaxInstances = 1024;
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PersistentTable"/> class.
-        /// </summary>
+        /// <param name="directory">
+        /// The database directory.
+        /// </param>
         /// <param name="databaseFile">
         /// The database file.
         /// </param>
         /// <param name="tableName">
         /// The table name.
         /// </param>
-        public PersistentTable(string directory, string databaseFile, string tableName)
+        public PersistentTablePool(string directory, string databaseFile, string tableName)
         {
             this.Directory = directory;
             this.DatabaseFile = databaseFile;
@@ -93,29 +68,12 @@
         /// Gets the table name.
         /// </summary>
         public string TableName { get; private set; }
-
+        
         /// <summary>
-        /// Gets the session.
+        /// The instance.
         /// </summary>
-        internal JET_SESID Session
-        {
-            get
-            {
-                return this.session;
-            }
-        }
-
-        /// <summary>
-        /// Gets the table.
-        /// </summary>
-        internal JET_TABLEID Table
-        {
-            get
-            {
-                return this.table;
-            }
-        }
-
+        internal ESENT.Instance Instance { get; private set; }
+        
         /// <summary>
         /// Initializes this instance.
         /// </summary>
@@ -125,56 +83,44 @@
             CreateDatabaseIfNotExists(this.Directory, this.DatabaseFile, this.TableName);
 
             // Initialize an instance of the database engine.
-            this.instance = new Instance("instance" + string.Format("{0:X}", this.GetHashCode()));
-            this.instance.Parameters.LogFileDirectory =
-                this.instance.Parameters.SystemDirectory = this.instance.Parameters.TempDirectory = this.Directory;
-            this.instance.Parameters.CircularLog = true;
-            this.instance.Init();
-
-            // Start a new session.
-            this.session = new Session(this.instance);
-
-            // Open the database.
-            var database = OpenDatabase(this.session, Path.Combine(this.Directory, this.DatabaseFile));
-
-            // Get a reference to the table.
-            this.table = this.GetTable(database);
-
-            // Get references to the columns.
-            var columns = Api.GetColumnDictionary(this.session, this.table);
-            this.keyColumn = columns["key"];
-            this.valueColumn = columns["value"];
+            this.Instance = new ESENT.Instance("instance" + string.Format("{0:X}", this.GetHashCode()));
+            this.Instance.Parameters.LogFileDirectory =
+                this.Instance.Parameters.SystemDirectory =
+                this.Instance.Parameters.TempDirectory =
+                this.Instance.Parameters.AlternateDatabaseRecoveryDirectory = this.Directory;
+            this.Instance.Parameters.CircularLog = true;
+            this.Instance.Init();
         }
 
         public Task Backup(string destination)
         {
             var completion = new TaskCompletionSource<int>();
-            Api.JetBackupInstance(
-                this.instance,
+            ESENT.Api.JetBackupInstance(
+                this.Instance,
                 destination,
-                BackupGrbit.Atomic,
+                ESENT.BackupGrbit.Atomic,
                 (sesid, snp, snt, data) =>
                 {
                     var statusString = string.Format("({0}, {1}, {2}, {3})", sesid, snp, snt, data);
                     switch (snt)
                     {
-                        case JET_SNT.Begin:
+                        case ESENT.JET_SNT.Begin:
                             Debug.WriteLine("Began backup: " + statusString);
                             break;
-                        case JET_SNT.Fail:
+                        case ESENT.JET_SNT.Fail:
                             Debug.WriteLine("Failed backup: " + statusString);
                             completion.SetException(new Exception("Backup operation failed: " + statusString));
                             break;
-                        case JET_SNT.Complete:
+                        case ESENT.JET_SNT.Complete:
                             Debug.WriteLine("Completed backup: " + statusString);
                             completion.SetResult(0);
                             break;
-                        case JET_SNT.RecoveryStep:
+                        case ESENT.JET_SNT.RecoveryStep:
                             Debug.WriteLine("Recovery step during backup: " + statusString);
                             break;
                     }
 
-                    return JET_err.Success;
+                    return ESENT.JET_err.Success;
                 });
             return completion.Task;
         }
@@ -182,8 +128,8 @@
         public Task Restore(string source, string destination)
         {
             var completion = new TaskCompletionSource<int>();
-            Api.JetRestoreInstance(
-                this.instance,
+            ESENT.Api.JetRestoreInstance(
+                this.Instance,
                 source,
                 destination,
                 (sesid, snp, snt, data) =>
@@ -191,27 +137,245 @@
                     var statusString = string.Format("({0}, {1}, {2}, {3})", sesid, snp, snt, data);
                     switch (snt)
                     {
-                        case JET_SNT.Begin:
+                        case ESENT.JET_SNT.Begin:
                             Debug.WriteLine("Began restore: " + statusString);
                             break;
-                        case JET_SNT.Fail:
+                        case ESENT.JET_SNT.Fail:
                             Debug.WriteLine("Failed restore: " + statusString);
                             completion.SetException(new Exception("Restore operation failed: " + statusString));
                             break;
-                        case JET_SNT.Complete:
+                        case ESENT.JET_SNT.Complete:
                             Debug.WriteLine("Completed restore: " + statusString);
                             completion.SetResult(0);
                             break;
-                        case JET_SNT.RecoveryStep:
+                        case ESENT.JET_SNT.RecoveryStep:
                             Debug.WriteLine("Recovery step during restore: " + statusString);
                             break;
                     }
 
-                    return JET_err.Success;
+                    return ESENT.JET_err.Success;
                 });
             return completion.Task;
         }
 
+        public PersistentTable<TKey, TValue> Take()
+        {
+            PersistentTable<TKey, TValue> result;
+            if (!this.pool.TryTake(out result))
+            {
+                result = this.CreateInstance();
+            }
+
+            return result;
+        }
+
+        public void Return(PersistentTable<TKey, TValue> table)
+        {
+            this.pool.Add(table);
+        }
+
+        private PersistentTable<TKey, TValue> CreateInstance()
+        {
+            var session = new ESENT.Session(this.Instance);
+
+            // Open the database.
+            var database = OpenDatabase(session, Path.Combine(this.Directory, this.DatabaseFile));
+
+            // Get a reference to the table.
+            var table = new ESENT.Table(session, database, this.TableName, ESENT.OpenTableGrbit.None);
+
+            // Get references to the columns.
+            var columns = ESENT.Api.GetColumnDictionary(session, table);
+
+            return new PersistentTable<TKey, TValue>
+            {
+                Table = table,
+                Session = new ESENT.Session(this.Instance),
+                KeyColumn = columns["key"],
+                ValueColumn = columns["value"]
+            };
+        }
+
+        /// <summary>
+        /// The open database.
+        /// </summary>
+        /// <param name="session">
+        /// The session.
+        /// </param>
+        /// <param name="databaseFile">
+        /// The database file.
+        /// </param>
+        /// <returns>
+        /// The <see cref="ESENT.JET_DBID"/>.
+        /// </returns>
+        private static ESENT.JET_DBID OpenDatabase(ESENT.Session session, string databaseFile)
+        {
+            Debug.WriteLine(string.Format("Opening database '{0}'.", databaseFile));
+            ESENT.JET_DBID database;
+            ESENT.Api.JetAttachDatabase(session, databaseFile, ESENT.AttachDatabaseGrbit.None);
+            ESENT.Api.JetOpenDatabase(session, databaseFile, null, out database, ESENT.OpenDatabaseGrbit.None);
+
+            Debug.WriteLine("Successfully opened database.");
+            return database;
+        }
+
+        /// <summary>
+        /// The create database if not exists.
+        /// </summary>
+        /// <param name="directory">
+        /// The directory in which the database exists.
+        /// </param>
+        /// <param name="databaseFile">
+        /// The database file.
+        /// </param>
+        /// <param name="tableName">
+        /// The table name.
+        /// </param>
+        private static void CreateDatabaseIfNotExists(string directory, string databaseFile, string tableName)
+        {
+            if (!File.Exists(databaseFile))
+            {
+                Debug.WriteLine("Creating database '{0}' with table '{1}' in directory '{2}'.", databaseFile, tableName, directory);
+                CreateDatabase(directory, databaseFile, tableName);
+                Debug.WriteLine("Successfully created database.");
+            }
+            else
+            {
+                Debug.WriteLine(string.Format("Database '{0}' exists.", databaseFile));
+            }
+        }
+
+        /// <summary>
+        /// The create database.
+        /// </summary>
+        /// <param name="directory">
+        /// The database file directory.
+        /// </param>
+        /// <param name="databaseFile">
+        /// The database file, excluding the directory.
+        /// </param>
+        /// <param name="tableName">
+        /// The table name.
+        /// </param>
+        private static void CreateDatabase(string directory, string databaseFile, string tableName)
+        {
+            using (var instance = new ESENT.Instance("createdatabase" + Guid.NewGuid().ToString("N")))
+            {
+                instance.Parameters.LogFileDirectory = directory;
+                instance.Parameters.SystemDirectory = directory;
+                instance.Parameters.TempDirectory = directory;
+                instance.Init();
+                using (var session = new ESENT.Session(instance))
+                {
+                    ESENT.JET_DBID database;
+                    ESENT.Api.JetCreateDatabase(
+                        session,
+                        Path.Combine(directory, databaseFile),
+                        null,
+                        out database,
+                        ESENT.CreateDatabaseGrbit.OverwriteExisting);
+                    using (var tx = new ESENT.Transaction(session))
+                    {
+                        ESENT.JET_TABLEID table;
+                        Debug.WriteLine(string.Format("Creating table '{0}'", tableName));
+                        ESENT.Api.JetCreateTable(session, database, tableName, 16, 100, out table);
+                        CreateColumnsAndIndexes(session, table);
+                        ESENT.Api.JetCloseTable(session, table);
+                        tx.Commit(ESENT.CommitTransactionGrbit.None);
+                    }
+
+                    Debug.WriteLine(string.Format("Created table '{0}'.", tableName));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The create columns and indexes.
+        /// </summary>
+        /// <param name="session">
+        /// The session.
+        /// </param>
+        /// <param name="table">
+        /// The table.
+        /// </param>
+        private static void CreateColumnsAndIndexes(ESENT.Session session, ESENT.JET_TABLEID table)
+        {
+            using (var tx = new ESENT.Transaction(session))
+            {
+                ESENT.JET_COLUMNID column;
+                var keyDefinition = new ESENT.JET_COLUMNDEF { coltyp = Converters.KeyColtyp };
+                var valueDefinition = new ESENT.JET_COLUMNDEF { coltyp = Converters.ValueColtyp };
+
+                // Add a key and a value column.
+                ESENT.Api.JetAddColumn(session, table, "key", keyDefinition, null, 0, out column);
+                ESENT.Api.JetAddColumn(session, table, "value", valueDefinition, null, 0, out column);
+
+                // Create the primary index.
+                const string PrimaryIndexDefinition = "+key\0\0";
+                ESENT.Api.JetCreateIndex(
+                    session,
+                    table,
+                    PersistentTableConstants.PrimaryIndexName,
+                    ESENT.CreateIndexGrbit.IndexPrimary,
+                    PrimaryIndexDefinition,
+                    PrimaryIndexDefinition.Length,
+                    100);
+
+                tx.Commit(ESENT.CommitTransactionGrbit.None);
+            }
+        }
+
+        void IDisposable.Dispose()
+        {
+            var inst = this.Instance;
+            if (inst != null)
+            {
+                inst.Dispose();
+                this.Instance = null;
+            }
+
+            PersistentTable<TKey, TValue> table;
+            while (this.pool.TryTake(out table))
+            {
+                ((IDisposable)table).Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The esent sample.
+    /// </summary>
+    public class PersistentTable<TKey, TValue> : IDisposable
+    {
+        /// <summary>
+        /// The converters.
+        /// </summary>
+        internal static readonly DatabaseTypeConverters<TKey, TValue> Converters = new DatabaseTypeConverters<TKey, TValue>();
+
+        internal PersistentTable()
+        {
+        }
+        
+        /// <summary>
+        /// The key column.
+        /// </summary>
+        internal ESENT.JET_COLUMNID KeyColumn { get; set; }
+
+        /// <summary>
+        /// The value column.
+        /// </summary>
+        internal ESENT.JET_COLUMNID ValueColumn { get; set; }
+
+        /// <summary>
+        /// The table.
+        /// </summary>
+        internal ESENT.Table Table { get; set; }
+
+        /// <summary>
+        /// The session.
+        /// </summary>
+        internal ESENT.Session Session { get; set; }
+        
         public bool TryGetValue(TKey key, out TValue value)
         {
             value = this.GetInternal(key);
@@ -253,6 +417,13 @@
             }
         }
 
+        /// <summary>
+        /// Adds or updates the specified value, or adds it and returns the result.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="updateFunc">The function used to create the value to update with if one does not already exist.</param>
+        /// <returns>The added or existing value.</returns>
         public TValue AddOrUpdate(TKey key, TValue value, Func<TKey, TValue, TValue> updateFunc)
         {
             var existing = this.GetInternal(key);
@@ -269,6 +440,12 @@
             return value;
         }
 
+        /// <summary>
+        /// Retrieves the specified value, or adds it and returns the result.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="addFunc">The function used to create the value to add if one does not already exist.</param>
+        /// <returns>The added or existing value.</returns>
         public TValue GetOrAdd(TKey key, Func<TKey, TValue> addFunc)
         {
             var existing = this.GetInternal(key);
@@ -282,6 +459,12 @@
             return value;
         }
 
+        /// <summary>
+        /// Retrieves the specified value, or adds it and returns the result.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value to add if it does not already exist.</param>
+        /// <returns>The added or existing value.</returns>
         public TValue GetOrAdd(TKey key, TValue value)
         {
             var existing = this.GetInternal(key);
@@ -294,14 +477,24 @@
             return value;
         }
 
+        /// <summary>
+        /// Updates the specified entry.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
         public void Update(TKey key, TValue value)
         {
-            this.UpdateRow(key, value, JET_prep.Replace);
+            this.UpdateRow(key, value, ESENT.JET_prep.Replace);
         }
 
+        /// <summary>
+        /// Adds a new value.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
         public void Add(TKey key, TValue value)
         {
-            this.UpdateRow(key, value, JET_prep.Insert);
+            this.UpdateRow(key, value, ESENT.JET_prep.Insert);
         }
 
         /// <summary>
@@ -315,10 +508,14 @@
         /// </returns>
         public bool Contains(TKey key)
         {
-            Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Converters.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
+            ESENT.Api.JetSetCurrentIndex(this.Session, this.Table, PersistentTableConstants.PrimaryIndexName);
+            Converters.MakeKey(
+                this.Session,
+                this.Table,
+                key,
+                ESENT.MakeKeyGrbit.NewKey);
 
-            if (!Api.TrySeek(this.session, this.table, SeekGrbit.SeekEQ))
+            if (!ESENT.Api.TrySeek(this.Session, this.Table, ESENT.SeekGrbit.SeekEQ))
             {
                 return false;
             }
@@ -326,6 +523,11 @@
             return true;
         }
 
+        /// <summary>
+        /// Retries the value of the specified entry.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <returns>The value.</returns>
         public TValue Get(TKey key)
         {
             TValue value;
@@ -358,22 +560,34 @@
         /// <param name="key">
         /// The key to delete.
         /// </param>
+        /// <param name="value">
+        /// The value which was removed.
+        /// </param>
         /// <returns>
         /// <see langword="true"/> if the key will be deleted when the transaction commits, <see langword="false"/> otherwise.
         /// </returns>
         public bool TryRemove(TKey key, out TValue value)
         {
-            Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Converters.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
+            ESENT.Api.JetSetCurrentIndex(this.Session, this.Table, PersistentTableConstants.PrimaryIndexName);
+            PersistentTablePool<TKey, TValue>.Converters.MakeKey(
+                this.Session,
+                this.Table,
+                key,
+                ESENT.MakeKeyGrbit.NewKey);
 
-            if (!Api.TrySeek(this.session, this.table, SeekGrbit.SeekEQ))
+            if (!ESENT.Api.TrySeek(this.Session, this.Table, ESENT.SeekGrbit.SeekEQ))
             {
                 value = default(TValue);
                 return false;
             }
 
-            value = (TValue)Converters.RetrieveValueColumn(this.session, this.table, this.valueColumn);
-            Api.JetDelete(this.session, this.table);
+            value =
+                (TValue)
+                PersistentTablePool<TKey, TValue>.Converters.RetrieveValueColumn(
+                    this.Session,
+                    this.Table,
+                    this.ValueColumn);
+            ESENT.Api.JetDelete(this.Session, this.Table);
             return true;
         }
 
@@ -398,17 +612,17 @@
             long maxValues = long.MaxValue)
         {
             // Set the index and seek to the lower bound, if it has been specified.
-            Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Converters.MakeKey(this.session, this.table, lowerBound, MakeKeyGrbit.NewKey);
-            if (!Api.TrySeek(this.session, this.table, SeekGrbit.SeekGE))
+            ESENT.Api.JetSetCurrentIndex(this.Session, this.Table, PersistentTableConstants.PrimaryIndexName);
+            PersistentTablePool<TKey, TValue>.Converters.MakeKey(this.Session, this.Table, lowerBound, ESENT.MakeKeyGrbit.NewKey);
+            if (!ESENT.Api.TrySeek(this.Session, this.Table, ESENT.SeekGrbit.SeekGE))
             {
                 yield break;
             }
 
             // Set the upper limit of the index scan.
-            Converters.MakeKey(this.session, this.table, upperBound, MakeKeyGrbit.NewKey | MakeKeyGrbit.FullColumnEndLimit);
-            const SetIndexRangeGrbit RangeFlags = SetIndexRangeGrbit.RangeInclusive | SetIndexRangeGrbit.RangeUpperLimit;
-            if (!Api.TrySetIndexRange(this.session, this.table, RangeFlags))
+            PersistentTablePool<TKey, TValue>.Converters.MakeKey(this.Session, this.Table, upperBound, ESENT.MakeKeyGrbit.NewKey | ESENT.MakeKeyGrbit.FullColumnEndLimit);
+            const ESENT.SetIndexRangeGrbit RangeFlags = ESENT.SetIndexRangeGrbit.RangeInclusive | ESENT.SetIndexRangeGrbit.RangeUpperLimit;
+            if (!ESENT.Api.TrySetIndexRange(this.Session, this.Table, RangeFlags))
             {
                 yield break;
             }
@@ -417,12 +631,12 @@
             bool hasNext;
             do
             {
-                var key = (TKey)Converters.RetrieveKeyColumn(this.session, this.table, this.keyColumn);
-                
-                var value = (TValue)Converters.RetrieveValueColumn(this.session, this.table, this.valueColumn);
+                var key = (TKey)PersistentTablePool<TKey, TValue>.Converters.RetrieveKeyColumn(this.Session, this.Table, this.KeyColumn);
+
+                var value = (TValue)PersistentTablePool<TKey, TValue>.Converters.RetrieveValueColumn(this.Session, this.Table, this.ValueColumn);
                 yield return new KeyValuePair<TKey, TValue>(key, value);
                 --maxValues;
-                hasNext = Api.TryMoveNext(this.session, this.table);
+                hasNext = ESENT.Api.TryMoveNext(this.Session, this.Table);
             }
             while (hasNext && maxValues > 0);
         }
@@ -430,188 +644,105 @@
         /// <summary>
         /// The dispose.
         /// </summary>
-        public void Dispose()
+        void IDisposable.Dispose()
         {
-            var tbl = this.table;
+            var tbl = this.Table;
             if (tbl != null)
             {
                 tbl.Dispose();
-                this.table = null;
+                this.Table = null;
             }
 
-            var ses = this.session;
+            var ses = this.Session;
             if (ses != null)
             {
                 ses.Dispose();
-                this.session = null;
+                this.Session = null;
             }
 
-            var inst = this.instance;
-            if (inst != null)
-            {
-                inst.Dispose();
-                this.instance = null;
-            }
         }
 
         /// <summary>
-        /// The open database.
+        /// Updates the specified row with the specified value.
         /// </summary>
-        /// <param name="session">
-        /// The session.
-        /// </param>
-        /// <param name="databaseFile">
-        /// The database file.
-        /// </param>
-        /// <returns>
-        /// The <see cref="JET_DBID"/>.
-        /// </returns>
-        private static JET_DBID OpenDatabase(Session session, string databaseFile)
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="prep">The type of update.</param>
+        private void UpdateRow(TKey key, TValue value, ESENT.JET_prep prep)
         {
-            Debug.WriteLine("Opening database '{0}'.", databaseFile);
-            JET_DBID database;
-            Api.JetAttachDatabase(session, databaseFile, AttachDatabaseGrbit.None);
-            Api.JetOpenDatabase(session, databaseFile, null, out database, OpenDatabaseGrbit.None);
-
-            Debug.WriteLine("Successfully opened database.");
-            return database;
-        }
-
-        /// <summary>
-        /// The create database if not exists.
-        /// </summary>
-        /// <param name="databaseFile">
-        /// The database file.
-        /// </param>
-        /// <param name="tableName">
-        /// The table name.
-        /// </param>
-        private static void CreateDatabaseIfNotExists(string directory, string databaseFile, string tableName)
-        {
-            if (!File.Exists(databaseFile))
+            using (var update = new ESENT.Update(this.Session, this.Table, prep))
             {
-                Debug.WriteLine("Creating database '{0}' with table '{1}' in directory '{2}'.", databaseFile, tableName, directory);
-                CreateDatabase(directory, databaseFile, tableName);
-                Debug.WriteLine("Successfully created database.");
-            }
-            else
-            {
-                Debug.WriteLine("Database '{0}' exists.", databaseFile);
-            }
-        }
-
-        /// <summary>
-        /// The create database.
-        /// </summary>
-        /// <param name="directory">
-        /// The database file directory.
-        /// </param>
-        /// <param name="databaseFile">
-        /// The database file, excluding the directory.
-        /// </param>
-        /// <param name="tableName">
-        /// The table name.
-        /// </param>
-        private static void CreateDatabase(string directory, string databaseFile, string tableName)
-        {
-            using (var instance = new Instance("createdatabase" + Guid.NewGuid().ToString("N")))
-            {
-                instance.Parameters.LogFileDirectory = directory;
-                instance.Parameters.SystemDirectory = directory;
-                instance.Parameters.TempDirectory = directory;
-                instance.Init();
-                using (var session = new Session(instance))
-                {
-                    JET_DBID database;
-                    Api.JetCreateDatabase(
-                        session,
-                        Path.Combine(directory, databaseFile),
-                        null,
-                        out database,
-                        CreateDatabaseGrbit.OverwriteExisting);
-                    using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(session))
-                    {
-                        JET_TABLEID table;
-                        Debug.WriteLine("Creating table '{0}'", tableName);
-                        Api.JetCreateTable(session, database, tableName, 16, 100, out table);
-                        CreateColumnsAndIndexes(session, table);
-                        Api.JetCloseTable(session, table);
-                        tx.Commit(CommitTransactionGrbit.None);
-                    }
-
-                    Debug.WriteLine("Created table '{0}'.", tableName);
-                }
-            }
-        }
-
-        /// <summary>
-        /// The create columns and indexes.
-        /// </summary>
-        /// <param name="session">
-        /// The session.
-        /// </param>
-        /// <param name="table">
-        /// The table.
-        /// </param>
-        private static void CreateColumnsAndIndexes(Session session, JET_TABLEID table)
-        {
-            using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(session))
-            {
-                JET_COLUMNID column;
-                var keyDefinition = new JET_COLUMNDEF { coltyp = Converters.KeyColtyp };
-                var valueDefinition = new JET_COLUMNDEF { coltyp = Converters.ValueColtyp };
-
-                // Add a key and a value column.
-                Api.JetAddColumn(session, table, "key", keyDefinition, null, 0, out column);
-                Api.JetAddColumn(session, table, "value", valueDefinition, null, 0, out column);
-
-                // Create the primary index.
-                const string PrimaryIndexDefinition = "+key\0\0";
-                Api.JetCreateIndex(
-                    session,
-                    table,
-                    PrimaryIndexName,
-                    CreateIndexGrbit.IndexPrimary,
-                    PrimaryIndexDefinition,
-                    PrimaryIndexDefinition.Length,
-                    100);
-
-                tx.Commit(CommitTransactionGrbit.None);
-            }
-        }
-
-        /// <summary>
-        /// The get table.
-        /// </summary>
-        /// <param name="database">
-        /// The database.
-        /// </param>
-        /// <returns>
-        /// The <see cref="Table"/>.
-        /// </returns>
-        private Table GetTable(JET_DBID database)
-        {
-            return new Table(this.session, database, this.TableName, OpenTableGrbit.None);
-        }
-
-        private void UpdateRow(TKey key, TValue value, JET_prep prep)
-        {
-            using (var update = new Update(this.session, this.table, prep))
-            {
-                Converters.SetKeyColumn(this.session, this.table, this.keyColumn, key);
-                Converters.SetValueColumn(this.session, this.table, this.valueColumn, value);
+                Converters.SetKeyColumn(this.Session, this.Table, this.KeyColumn, key);
+                Converters.SetValueColumn(this.Session, this.Table, this.ValueColumn, value);
                 update.Save();
             }
         }
 
+        /// <summary>
+        /// Retrieves the value for the provided key, or the default value if the key doesn't exist.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <returns>The value.</returns>
         private TValue GetInternal(TKey key)
         {
-            Api.JetSetCurrentIndex(this.session, this.table, PrimaryIndexName);
-            Converters.MakeKey(this.session, this.table, key, MakeKeyGrbit.NewKey);
 
-            if (Api.TrySeek(this.session, this.table, SeekGrbit.SeekEQ))
+
+
+
+
+
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+
+            // ESENT SESSION handles must be used on the thread they were created on.
+            // So we probably need to ensure that a transaction starts and finishes on the same thread and that each thread has a single ESENT session.
+            // Plan: Turn PersistentTable into an object which schedules public methods on a given thread-bound scheduler.
+
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+            ////
+
+
+
+
+
+
+
+            ESENT.Api.JetSetCurrentIndex(this.Session, this.Table, PersistentTableConstants.PrimaryIndexName);
+            Converters.MakeKey(this.Session, this.Table, key, ESENT.MakeKeyGrbit.NewKey);
+
+            if (ESENT.Api.TrySeek(this.Session, this.Table, ESENT.SeekGrbit.SeekEQ))
             {
-                return (TValue)Converters.RetrieveValueColumn(this.session, this.table, this.valueColumn);
+                return (TValue)Converters.RetrieveValueColumn(this.Session, this.Table, this.ValueColumn);
             }
 
             return default(TValue);
