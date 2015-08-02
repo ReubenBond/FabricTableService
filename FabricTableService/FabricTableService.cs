@@ -10,11 +10,13 @@
 namespace FabricTableService
 {
     using System;
-    using System.Globalization;
+    using System.Diagnostics;
+    using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
 
     using global::FabricTableService.Journal;
+    using global::FabricTableService.Journal.Database;
 
     using Microsoft.ServiceFabric.Data.Collections;
     using Microsoft.ServiceFabric.Services;
@@ -50,8 +52,7 @@ namespace FabricTableService
             // TODO: Replace the following with your own logic.
             var myDictionary = await this.StateManager.GetOrAddAsync<IReliableDictionary<string, long>>("myDictionary");
             var journal = await this.StateManager.GetOrAddAsync<DistributedJournal<Guid, string>>("journal");
-
-            var partition = this.ServicePartition.PartitionInfo.Id;
+            
             int x = 100;
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -65,16 +66,33 @@ namespace FabricTableService
 
                     await myDictionary.AddOrUpdateAsync(tx, "Counter-1", 0, (k, v) => ++v);
 
-                    ServiceEventSource.Current.ServiceMessage(this, "Initial value: " + await journal.GetValue(Guid.Empty));
-                    await journal.SetValue(tx, Guid.Empty, DateTime.Now.ToString(CultureInfo.InvariantCulture));
-                    ServiceEventSource.Current.ServiceMessage(this, "Final value: " + await journal.GetValue(Guid.Empty));
+                    var value = journal.GetValue(Guid.Empty);
+                    ServiceEventSource.Current.ServiceMessage(this, "Initial value: " + value);
+                    int intVal;
+                    int.TryParse(value, out intVal);
+                    journal.SetValue(tx, Guid.Empty, (intVal + 1).ToString());
+                    ServiceEventSource.Current.ServiceMessage(this, "Final value: " + journal.GetValue(Guid.Empty));
 
                     await tx.CommitAsync();
                 }
-
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+                
                 if (--x <= 0) break;
             }
+
+            var backupPath =
+                Path.Combine(
+                    this.ServiceInitializationParameters.CodePackageActivationContext.WorkDirectory,
+                    "backup",
+                    this.ServicePartition.PartitionInfo.Id.ToString("N"));
+            await journal.Backup(backupPath);
+            Trace.TraceInformation($"Backed up to {backupPath}. Counter value is {journal.GetValue(Guid.Empty)}");
+
+            var journal2 = new PersistentTablePool<Guid, string>(backupPath, "db.edb", "journal");
+            await journal2.Restore(backupPath, @"c:\tmp\db");
+            Trace.TraceInformation($"Restored from {backupPath}. Counter value is {journal.GetValue(Guid.Empty)}");
+            
+
+            journal.Dispose();
         }
     }
 }

@@ -38,14 +38,9 @@ namespace FabricTableService.Journal.Database
                 { typeof(double), (s, t, o, g) => Api.MakeKey(s, t, (double)o, g) },
                 { typeof(DateTime), (s, t, o, g) => Api.MakeKey(s, t, ((DateTime)o).Ticks, g) },
                 { typeof(TimeSpan), (s, t, o, g) => Api.MakeKey(s, t, ((TimeSpan)o).Ticks, g) },
-                { typeof(Guid), (s, t, o, g) => Api.MakeKey(s, t, ((Guid)o).ToByteArray(), g) },
+                { typeof(Guid), (s, t, o, g) => Api.MakeKey(s, t, (Guid)o, g) },
                 { typeof(string), (s, t, o, g) => Api.MakeKey(s, t, (string)o, Encoding.Unicode, g) },
             };
-
-        /// <summary>
-        /// The MakeKey delegate for this object.
-        /// </summary>
-        private readonly MakeKeyDelegate makeKey;
 
         /// <summary>
         /// Initializes a new instance of the KeyColumnConverter class.
@@ -56,10 +51,10 @@ namespace FabricTableService.Journal.Database
         {
             if (!MakeKeyDelegates.ContainsKey(type))
             {
-                throw new ArgumentOutOfRangeException("type", type, "Not supported for MakeKey");
+                throw new ArgumentOutOfRangeException(nameof(type), type, "Not supported for MakeKey");
             }
 
-            this.makeKey = MakeKeyDelegates[type];
+            this.MakeKey = MakeKeyDelegates[type];
         }
 
         /// <summary>
@@ -75,12 +70,6 @@ namespace FabricTableService.Journal.Database
         /// Gets a delegate that can be used to call JetMakeKey with an object of
         /// type <see cref="Type"/>.
         /// </summary>
-        public MakeKeyDelegate MakeKey
-        {
-            get
-            {
-                return this.makeKey;
-            }
-        }
+        public MakeKeyDelegate MakeKey { get; }
     }
 }

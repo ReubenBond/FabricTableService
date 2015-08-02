@@ -13,13 +13,9 @@ namespace FabricTableService.Journal
     using System.Collections.Generic;
     using System.IO;
 
-    using global::FabricTableService.Utilities;
-
-    using ESENT = Microsoft.Isam.Esent.Interop;
-    using System.Fabric.Replication;
-
     using global::FabricTableService.Journal.Database;
-
+    using global::FabricTableService.Utilities;
+    
     /// <summary>
     /// The distributed journal.
     /// </summary>
@@ -89,13 +85,7 @@ namespace FabricTableService.Journal
             /// <summary>
             /// Gets the type of this operation.
             /// </summary>
-            public OperationType Type
-            {
-                get
-                {
-                    return OperationTypes[this.GetType()];
-                }
-            }
+            public OperationType Type => OperationTypes[this.GetType()];
 
             /// <summary>
             /// Gets or sets the id.
@@ -161,11 +151,11 @@ namespace FabricTableService.Journal
             }
 
             /// <summary>
-            /// Applies the operation to the journal.
+            /// Applies the operation to the table.
             /// </summary>
-            /// <param name="journal">The journal.</param>
+            /// <param name="table">The table.</param>
             /// <returns>The result of applying the operation.</returns>
-            public abstract object Apply(bool commit, bool apply, ESENT.Transaction transaction, PersistentTable<TKey, TValue> table);
+            public abstract object Apply(PersistentTable<TKey, TValue> table);
 
             /// <summary>
             /// Deserializes operation-specific fields.
@@ -196,17 +186,12 @@ namespace FabricTableService.Journal
             public TKey Key { get; set; }
 
             /// <summary>
-            /// Applies the operation to the journal.
+            /// Applies the operation to the table.
             /// </summary>
-            /// <param name="journal">The journal.</param>
-            public override object Apply(bool commit, bool apply, ESENT.Transaction transaction, PersistentTable<TKey, TValue> table)
+            /// <param name="table">The table.</param>
+            public override object Apply(PersistentTable<TKey, TValue> table)
             {
-                using (var tx = new ESENT.Transaction(table.Session))
-                {
-                    table.AddOrUpdate(this.Key, this.Value);
-                    tx.Commit(ESENT.CommitTransactionGrbit.None);
-                }
-
+                table.AddOrUpdate(this.Key, this.Value);
                 return null;
             }
 
@@ -249,17 +234,12 @@ namespace FabricTableService.Journal
             /// Applies the operation to the journal.
             /// </summary>
             /// <param name="table">The journal.</param>
-            public override object Apply(bool commit, bool apply, ESENT.Transaction transaction, PersistentTable<TKey, TValue> table)
+            public override object Apply(PersistentTable<TKey, TValue> table)
             {
-                transaction.Begin();
-                using (var tx = transaction)
-                {
-                    TValue value;
-                    var result = table.TryRemove(this.Key, out value);
-                    tx.Commit(ESENT.CommitTransactionGrbit.None);
-                    return result;
-                }
+                TValue value;
+                var result = table.TryRemove(this.Key, out value);
 
+                return result;
             }
 
             /// <summary>

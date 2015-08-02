@@ -24,12 +24,12 @@ namespace FabricTableService.Journal.Database
         /// <summary>
         /// Column converter for the key column.
         /// </summary>
-        private readonly KeyColumnConverter keyColumnConverter;
+        private readonly KeyColumnConverter key;
 
         /// <summary>
         /// Column converter for the value column.
         /// </summary>
-        private readonly ColumnConverter valueColumnConverter;
+        private readonly ColumnConverter value;
 
         /// <summary>
         /// Initializes a new instance of the DatabaseTypeConverters
@@ -38,90 +38,48 @@ namespace FabricTableService.Journal.Database
         /// </summary>
         public DatabaseTypeConverters()
         {
-            this.keyColumnConverter = new KeyColumnConverter(typeof(TKey));
-            this.valueColumnConverter = new ColumnConverter(typeof(TValue));
+            this.key = new KeyColumnConverter(typeof(TKey));
+            this.value = new ColumnConverter(typeof(TValue));
         }
 
         /// <summary>
         /// Gets a delegate that can be used to call JetMakeKey with an object of
         /// type <typeparamref name="TKey"/>.
         /// </summary>
-        public KeyColumnConverter.MakeKeyDelegate MakeKey
-        {
-            get
-            {
-                return this.keyColumnConverter.MakeKey;
-            }
-        }
+        public KeyColumnConverter.MakeKeyDelegate MakeKey => this.key.MakeKey;
 
         /// <summary>
         /// Gets a delegate that can be used to set the Key column with an object of
         /// type <typeparamref name="TKey"/>.
         /// </summary>
-        public ColumnConverter.SetColumnDelegate SetKeyColumn
-        {
-            get
-            {
-                return this.keyColumnConverter.SetColumn;
-            }
-        }
+        public ColumnConverter.SetColumnDelegate SetKeyColumn => this.key.SetColumn;
 
         /// <summary>
         /// Gets a delegate that can be used to set the Value column with an object of
         /// type <typeparamref name="TValue"/>.
         /// </summary>
-        public ColumnConverter.SetColumnDelegate SetValueColumn
-        {
-            get
-            {
-                return this.valueColumnConverter.SetColumn;
-            }
-        }
+        public ColumnConverter.SetColumnDelegate SetValueColumn => this.value.SetColumn;
 
         /// <summary>
         /// Gets a delegate that can be used to retrieve the Key column, returning
         /// an object of type <typeparamref name="TKey"/>.
         /// </summary>
-        public ColumnConverter.RetrieveColumnDelegate RetrieveKeyColumn
-        {
-            get
-            {
-                return this.keyColumnConverter.RetrieveColumn;
-            }
-        }
+        public ColumnConverter.RetrieveColumnDelegate RetrieveKeyColumn => this.key.RetrieveColumn;
 
         /// <summary>
         /// Gets a delegate that can be used to retrieve the Value column, returning
         /// an object of type <typeparamref name="TValue"/>.
         /// </summary>
-        public ColumnConverter.RetrieveColumnDelegate RetrieveValueColumn
-        {
-            get
-            {
-                return this.valueColumnConverter.RetrieveColumn;
-            }
-        }
+        public ColumnConverter.RetrieveColumnDelegate RetrieveValueColumn => this.value.RetrieveColumn;
 
         /// <summary>
         /// Gets the JET_coltyp that the key column should have.
         /// </summary>
-        public JET_coltyp KeyColtyp
-        {
-            get
-            {
-                return this.keyColumnConverter.Coltyp;
-            }
-        }
+        public JET_coltyp KeyColtyp => this.key.Coltyp;
 
         /// <summary>
         /// Gets the JET_coltyp that the value column should have.
         /// </summary>
-        public JET_coltyp ValueColtyp
-        {
-            get
-            {
-                return this.valueColumnConverter.Coltyp;
-            }
-        }
+        public JET_coltyp ValueColtyp => this.value.Coltyp;
     }
 }

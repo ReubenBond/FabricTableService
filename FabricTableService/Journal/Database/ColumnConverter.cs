@@ -89,21 +89,6 @@ namespace FabricTableService.Journal.Database
         };
 
         /// <summary>
-        /// The SetColumn delegate for this object.
-        /// </summary>
-        private readonly SetColumnDelegate setColumn;
-
-        /// <summary>
-        /// The RetrieveColumn delegate for this object.
-        /// </summary>
-        private readonly RetrieveColumnDelegate retrieveColumn;
-
-        /// <summary>
-        /// The column type for this object.
-        /// </summary>
-        private readonly JET_coltyp coltyp;
-
-        /// <summary>
         /// Initializes static members of the ColumnConverter class. This sets up
         /// the conversion ditionaries.
         /// </summary>
@@ -132,7 +117,7 @@ namespace FabricTableService.Journal.Database
         {
             if (null == type)
             {
-                throw new ArgumentNullException("type");
+                throw new ArgumentNullException(nameof(type));
             }
 
             SetColumnDelegate setColumnDelegate;
@@ -140,14 +125,14 @@ namespace FabricTableService.Journal.Database
             {
                 if (!IsSerializable(type))
                 {
-                    throw new ArgumentOutOfRangeException("type", type, "Not supported for SetColumn");
+                    throw new ArgumentOutOfRangeException(nameof(type), type, "Not supported for SetColumn");
                 }
 
-                this.setColumn = Api.SerializeObjectToColumn;
+                this.SetColumn = Api.SerializeObjectToColumn;
             }
             else
             {
-                this.setColumn = setColumnDelegate;
+                this.SetColumn = setColumnDelegate;
             }
 
             RetrieveColumnDelegate getColumnDelegate;
@@ -155,14 +140,14 @@ namespace FabricTableService.Journal.Database
             {
                 if (!IsSerializable(type))
                 {
-                    throw new ArgumentOutOfRangeException("type", type, "Not supported for RetrieveColumn");
+                    throw new ArgumentOutOfRangeException(nameof(type), type, "Not supported for RetrieveColumn");
                 }
 
-                this.retrieveColumn = Api.DeserializeObjectFromColumn;
+                this.RetrieveColumn = Api.DeserializeObjectFromColumn;
             }
             else
             {
-                this.retrieveColumn = getColumnDelegate;
+                this.RetrieveColumn = getColumnDelegate;
             }
 
             JET_coltyp value;
@@ -170,14 +155,14 @@ namespace FabricTableService.Journal.Database
             {
                 if (!IsSerializable(type))
                 {
-                    throw new ArgumentOutOfRangeException("type", type, "Has no matching ESENT column type");
+                    throw new ArgumentOutOfRangeException(nameof(type), type, "Has no matching ESENT column type");
                 }
 
-                this.coltyp = JET_coltyp.LongBinary;
+                this.Coltyp = JET_coltyp.LongBinary;
             }
             else
             {
-                this.coltyp = value;
+                this.Coltyp = value;
             }
         }
 
@@ -198,41 +183,23 @@ namespace FabricTableService.Journal.Database
         /// <param name="columnid">The column to retrieve.</param>
         /// <returns>The retrieved value.</returns>
         public delegate object RetrieveColumnDelegate(JET_SESID sesid, JET_TABLEID tableid, JET_COLUMNID columnid);
-
+        
         /// <summary>
         /// Gets the type of database column the value should be stored in.
         /// </summary>
-        public JET_coltyp Coltyp
-        {
-            get
-            {
-                return this.coltyp;
-            }
-        }
+        public JET_coltyp Coltyp { get; }
 
         /// <summary>
         /// Gets a delegate that can be used to set the Key column with an object of
         /// type <see cref="Type"/>.
         /// </summary>
-        public SetColumnDelegate SetColumn
-        {
-            get
-            {
-                return this.setColumn;
-            }
-        }
+        public SetColumnDelegate SetColumn { get; }
 
         /// <summary>
         /// Gets a delegate that can be used to retrieve the Key column, returning
         /// type <see cref="Type"/>.
         /// </summary>
-        public RetrieveColumnDelegate RetrieveColumn
-        {
-            get
-            {
-                return this.retrieveColumn;
-            }
-        }
+        public RetrieveColumnDelegate RetrieveColumn { get; }
 
         /// <summary>
         /// Determine if the given type is a serializable structure.
