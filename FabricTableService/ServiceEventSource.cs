@@ -1,14 +1,11 @@
-﻿using Microsoft.ServiceFabric.Services;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics.Tracing;
-using System.Fabric;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace FabricTableService
+﻿namespace FabricTableService
 {
+    using System;
+    using System.Diagnostics.Tracing;
+    using System.Fabric;
+
+    using Microsoft.ServiceFabric.Services;
+
     [EventSource(Name = "MyCompany-FabricTableServiceApplication-FabricTableService")]
     internal sealed class ServiceEventSource : EventSource
     {
@@ -20,7 +17,7 @@ namespace FabricTableService
             if (this.IsEnabled())
             {
                 string finalMessage = string.Format(message, args);
-                Message(finalMessage);
+                this.Message(finalMessage);
             }
         }
 
@@ -29,7 +26,7 @@ namespace FabricTableService
         {
             if (this.IsEnabled())
             {
-                WriteEvent(1, message);
+                this.WriteEvent(1, message);
             }
         }
 
@@ -39,7 +36,7 @@ namespace FabricTableService
             if (this.IsEnabled())
             {
                 string finalMessage = string.Format(message, args);
-                ServiceMessage(
+                this.ServiceMessage(
                     service.ServiceInitializationParameters.ServiceName.ToString(),
                     service.ServiceInitializationParameters.ServiceTypeName,
                     service.ServiceInitializationParameters.InstanceId,
@@ -57,7 +54,7 @@ namespace FabricTableService
             if (this.IsEnabled())
             {
                 string finalMessage = string.Format(message, args);
-                ServiceMessage(
+                this.ServiceMessage(
                     service.ServiceInitializationParameters.ServiceName.ToString(),
                     service.ServiceInitializationParameters.ServiceTypeName,
                     service.ServiceInitializationParameters.ReplicaId,
@@ -82,26 +79,26 @@ namespace FabricTableService
         {
             if (this.IsEnabled())
             {
-                WriteEvent(2, serviceName, serviceTypeName, replicaOrInstanceId, partitionId, applicationName, applicationTypeName, nodeName, message);
+                this.WriteEvent(2, serviceName, serviceTypeName, replicaOrInstanceId, partitionId, applicationName, applicationTypeName, nodeName, message);
             }
         }
 
         [Event(3, Level = EventLevel.Informational, Message = "Service host process {0} registered service type {1}")]
         public void ServiceTypeRegistered(int hostProcessId, string serviceType)
         {
-            WriteEvent(3, hostProcessId, serviceType);
+            this.WriteEvent(3, hostProcessId, serviceType);
         }
 
         [NonEvent]
         public void ServiceHostInitializationFailed(Exception e)
         {
-            ServiceHostInitializationFailed(e.ToString());
+            this.ServiceHostInitializationFailed(e.ToString());
         }
 
         [Event(4, Level = EventLevel.Error, Message = "Service host initialization failed")]
         private void ServiceHostInitializationFailed(string exception)
         {
-            WriteEvent(4, exception);
+            this.WriteEvent(4, exception);
         }
     }
 }

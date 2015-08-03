@@ -86,14 +86,15 @@ namespace FabricTableService
                     this.ServiceInitializationParameters.CodePackageActivationContext.WorkDirectory,
                     "backup",
                     this.ServicePartition.PartitionInfo.Id.ToString("N"));
+            Trace.TraceInformation($"Backing up to {backupPath}. Counter value is {journal.GetValue(Guid.Empty)}");
             await journal.Backup(backupPath);
             Trace.TraceInformation($"Backed up to {backupPath}. Counter value is {journal.GetValue(Guid.Empty)}");
 
+            Trace.TraceInformation($"Restoring from {backupPath}");
             var journal2 = new PersistentTablePool<Guid, string>(backupPath, "db.edb", "journal");
             await journal2.Restore(backupPath, @"c:\tmp\db");
-            Trace.TraceInformation($"Restored from {backupPath}. Counter value is {journal.GetValue(Guid.Empty)}");
-            
-
+            var journal2Client = journal2.Take();
+            Trace.TraceInformation($"Restored from {backupPath}. Counter value is {journal2Client.Get(Guid.Empty)}");
             journal.Dispose();*/
         }
     }
