@@ -27,13 +27,19 @@ namespace FabricTableService.Journal
     public partial class DistributedJournal<TKey, TValue> : IDisposable
     {
         /// <summary>
-        /// The table.
+        /// The pool of tables.
         /// </summary>
         private PersistentTablePool<TKey, TValue> tables;
 
+        /// <summary>
+        /// Operations which are currently in-progress.
+        /// </summary>
         private readonly ConcurrentDictionary<long, OperationContext> inProgressOperations =
             new ConcurrentDictionary<long, OperationContext>();
 
+        /// <summary>
+        /// The current operation number.
+        /// </summary>
         private long operationNumber;
 
         /// <summary>
@@ -77,14 +83,22 @@ namespace FabricTableService.Journal
             var id = Interlocked.Increment(ref this.operationNumber);
 
             Operation undo, redo;
-            var initialValue = this.GetValue(key);
-            if (initialValue == null)
+            var table = this.tables.Take();
+            try
             {
-                undo = new RemoveOperation { Key = key, Id = id };
+                TValue initialValue;
+                if (table.TryGetValue(key, out initialValue))
+                {
+                    undo = new SetOperation {Key = key, Value = initialValue, Id = id};
+                }
+                else
+                {
+                    undo = new RemoveOperation {Key = key, Id = id};
+                }
             }
-            else
+            finally
             {
-                undo = new SetOperation { Key = key, Value = initialValue, Id = id };
+                this.tables.Return(table);
             }
 
             if (value == null)
@@ -105,17 +119,26 @@ namespace FabricTableService.Journal
 
             var id = Interlocked.Increment(ref this.operationNumber);
             Operation undo;
-            var initialValue = this.GetValue(key);
-            if (initialValue == null)
+            var table = this.tables.Take();
+            try
             {
-                undo = new RemoveOperation { Key = key, Id = id };
+                TValue initialValue;
+
+                if (table.TryGetValue(key, out initialValue))
+                {
+                    undo = new SetOperation {Key = key, Value = initialValue, Id = id};
+                }
+                else
+                {
+                    undo = new RemoveOperation {Key = key, Id = id};
+                }
             }
-            else
+            finally
             {
-                undo = new SetOperation { Key = key, Value = initialValue, Id = id };
+                this.tables.Return(table);
             }
 
-            var redo = new RemoveOperation { Key = key, Id = id };
+            var redo = new RemoveOperation {Key = key, Id = id};
 
             return this.PerformOperation<bool>(id, transaction, undo, redo);
         }
@@ -126,25 +149,12 @@ namespace FabricTableService.Journal
         /// <returns>
         /// The <see cref="string"/>.
         /// </returns>
-        public TValue GetValue(TKey key)
+        public Tuple<bool, TValue> GetValue(ITransaction tx, TKey key)
         {
-            var table = this.tables.Take();
-            try
-            {
-                using (var tx = new ESENT.Transaction(table.Session))
-                {
-                    ESENT.Api.JetSetSessionContext(table.Session, table.Context);
-                    TValue result;
-                    table.TryGetValue(key, out result);
-                    tx.Commit(ESENT.CommitTransactionGrbit.None);
-                    return result;
-                }
-            }
-            finally
-            {
-                ESENT.Api.JetResetSessionContext(table.Session);
-                this.tables.Return(table);
-            }
+            var transaction = tx.GetTransaction();
+            var id = Interlocked.Increment(ref this.operationNumber);
+            return this.PerformOperation<Tuple<bool, TValue>>(id, transaction, NopOperation.Instance,
+                new GetOperation {Key = key, Id = id});
         }
 
         /// <summary>

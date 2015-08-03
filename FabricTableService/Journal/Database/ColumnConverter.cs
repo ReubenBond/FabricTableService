@@ -29,6 +29,7 @@ namespace FabricTableService.Journal.Database
         private static readonly IDictionary<Type, SetColumnDelegate> SetColumnDelegates =
             new Dictionary<Type, SetColumnDelegate>
             {
+                { typeof(byte[]), (s, t, c, o) => Api.SetColumn(s, t, c, (byte[])o) },
                 { typeof(bool), (s, t, c, o) => Api.SetColumn(s, t, c, (bool)o) },
                 { typeof(byte), (s, t, c, o) => Api.SetColumn(s, t, c, (byte)o) },
                 { typeof(short), (s, t, c, o) => Api.SetColumn(s, t, c, (short)o) },
@@ -51,6 +52,7 @@ namespace FabricTableService.Journal.Database
         private static readonly IDictionary<Type, RetrieveColumnDelegate> RetrieveColumnDelegates =
             new Dictionary<Type, RetrieveColumnDelegate>
             {
+                { typeof(byte[]), Api.RetrieveColumn },
                 { typeof(bool), (s, t, c) => Api.RetrieveColumnAsBoolean(s, t, c) },
                 { typeof(byte), (s, t, c) => Api.RetrieveColumnAsByte(s, t, c) },
                 { typeof(short), (s, t, c) => Api.RetrieveColumnAsInt16(s, t, c) },
@@ -76,6 +78,7 @@ namespace FabricTableService.Journal.Database
             { typeof(byte), JET_coltyp.UnsignedByte },
             { typeof(short), JET_coltyp.Short },
             { typeof(ushort), JET_coltyp.Binary },
+            { typeof(byte[]), JET_coltyp.Binary },
             { typeof(int), JET_coltyp.Long },
             { typeof(uint), JET_coltyp.Binary },
             { typeof(long), JET_coltyp.Currency },

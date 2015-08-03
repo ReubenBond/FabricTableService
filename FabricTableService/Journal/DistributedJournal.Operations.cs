@@ -30,7 +30,7 @@ namespace FabricTableService.Journal
         /// <summary>
         /// The operation.
         /// </summary>
-        public abstract class Operation
+        internal abstract class Operation
         {
             /// <summary>
             /// The constructors.
@@ -40,7 +40,9 @@ namespace FabricTableService.Journal
                 new Dictionary<OperationType, Func<Operation>>
                 {
                     { OperationType.Set, () => new SetOperation() },
-                    { OperationType.Remove, () => new RemoveOperation() }
+                    { OperationType.Remove, () => new RemoveOperation() },
+                    { OperationType.Get, () => new GetOperation() },
+                    { OperationType.Nop, () => new NopOperation() }
                 };
 
             /// <summary>
@@ -79,7 +81,17 @@ namespace FabricTableService.Journal
                 /// <summary>
                 /// Removes an item.
                 /// </summary>
-                Remove
+                Remove,
+
+                /// <summary>
+                /// Gets an item.
+                /// </summary>
+                Get,
+
+                /// <summary>
+                /// Null operation.
+                /// </summary>
+                Nop
             }
 
             /// <summary>
@@ -262,6 +274,91 @@ namespace FabricTableService.Journal
                 writer.Write(this.Version);
                 writer.Write(this.Id);
                 writer.WriteObject(this.Key);
+            }
+        }
+
+        /// <summary>
+        /// Represents a get operation.
+        /// </summary>
+        internal class GetOperation : Operation
+        {
+            /// <summary>
+            /// Gets or sets the key.
+            /// </summary>
+            public TKey Key { get; set; }
+
+            /// <summary>
+            /// Applies the operation to the journal.
+            /// </summary>
+            /// <param name="table">The journal.</param>
+            public override object Apply(PersistentTable<TKey, TValue> table)
+            {
+                TValue value;
+                var result = table.TryGetValue(this.Key, out value);
+
+                return Tuple.Create(result, value);
+            }
+
+            /// <summary>
+            /// Deserializes operation-specific fields.
+            /// </summary>
+            /// <param name="reader">The reader.</param>
+            protected override void DeserializeInternal(BinaryReader reader)
+            {
+                this.Version = reader.ReadInt64();
+                this.Id = reader.ReadInt64();
+                this.Key = reader.ReadObject<TKey>();
+            }
+
+            /// <summary>
+            /// Serializes operation-specific fields.
+            /// </summary>
+            /// <param name="writer">The writer.</param>
+            protected override void SerializeInternal(BinaryWriter writer)
+            {
+                writer.Write(this.Version);
+                writer.Write(this.Id);
+                writer.WriteObject(this.Key);
+            }
+        }
+
+        /// <summary>
+        /// Represents a null operation.
+        /// </summary>
+        internal class NopOperation : Operation
+        {
+            /// <summary>
+            /// A null operation.
+            /// </summary>
+            public static readonly NopOperation Instance = new NopOperation();
+
+            /// <summary>
+            /// Applies the operation to the journal.
+            /// </summary>
+            /// <param name="table">The journal.</param>
+            public override object Apply(PersistentTable<TKey, TValue> table)
+            {
+                return null;
+            }
+
+            /// <summary>
+            /// Deserializes operation-specific fields.
+            /// </summary>
+            /// <param name="reader">The reader.</param>
+            protected override void DeserializeInternal(BinaryReader reader)
+            {
+                this.Version = reader.ReadInt64();
+                this.Id = reader.ReadInt64();
+            }
+
+            /// <summary>
+            /// Serializes operation-specific fields.
+            /// </summary>
+            /// <param name="writer">The writer.</param>
+            protected override void SerializeInternal(BinaryWriter writer)
+            {
+                writer.Write(this.Version);
+                writer.Write(this.Id);
             }
         }
     }

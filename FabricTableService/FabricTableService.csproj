@@ -98,6 +98,12 @@
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TableStore.Interface\TableStore.Interface.csproj">
+      <Project>{a5de67bc-ab45-41f9-a342-5b827d9fd7a1}</Project>
+      <Name>TableStore.Interface</Name>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
