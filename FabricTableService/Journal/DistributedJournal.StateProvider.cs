@@ -24,9 +24,9 @@ namespace FabricTableService.Journal
 
     using Newtonsoft.Json;
 
+    using ESENT = Microsoft.Isam.Esent.Interop;
     using Transaction = System.Fabric.Replication.Transaction;
     using TransactionBase = System.Fabric.Replication.TransactionBase;
-    using ESENT = Microsoft.Isam.Esent.Interop;
 
     /// <summary>
     /// The distributed journal.

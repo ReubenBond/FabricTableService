@@ -326,9 +326,9 @@
         }
 
         /// <summary>
-        /// The dispose.
+        /// Disposes this instance.
         /// </summary>
-        void IDisposable.Dispose()
+        public void Dispose()
         {
             var session = this.Session;
             if (session == null)

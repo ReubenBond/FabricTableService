@@ -1,10 +1,10 @@
-﻿using System;
-using System.Diagnostics;
-using System.Fabric;
-using System.Threading;
-
-namespace FabricTableService
+﻿namespace FabricTableService
 {
+    using System;
+    using System.Diagnostics;
+    using System.Fabric;
+    using System.Threading;
+
     public class Program
     {
         public static void Main(string[] args)

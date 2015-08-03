@@ -11,11 +11,12 @@ namespace FabricTableService.Journal
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
 
     using global::FabricTableService.Journal.Database;
     using global::FabricTableService.Utilities;
-    
+
     /// <summary>
     /// The distributed journal.
     /// </summary>
@@ -192,6 +193,7 @@ namespace FabricTableService.Journal
             public override object Apply(PersistentTable<TKey, TValue> table)
             {
                 table.AddOrUpdate(this.Key, this.Value);
+                Trace.TraceInformation($"After Set {this.Key} = {this.Value}, value is {table.Get(this.Key)}");
                 return null;
             }
 

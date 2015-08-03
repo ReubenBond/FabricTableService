@@ -8,9 +8,7 @@ namespace FabricTableService.Journal.Database
     using System.Threading;
     using System.Threading.Tasks;
 
-    using Microsoft.Isam.Esent.Interop.Windows7;
-    using Microsoft.Isam.Esent.Interop.Windows8;
-    using Microsoft.Isam.Esent.Interop.Windows81;
+    using Microsoft.Isam.Esent.Interop;
 
     public class PersistentTablePool<TKey, TValue> : IDisposable
     {
@@ -27,6 +25,12 @@ namespace FabricTableService.Journal.Database
             new BlockingCollection<PersistentTable<TKey, TValue>>();
 
         /// <summary>
+        /// The collection of all created sessions.
+        /// </summary>
+        private readonly ConcurrentBag<PersistentTable<TKey, TValue>> allInstances =
+            new ConcurrentBag<PersistentTable<TKey, TValue>>();
+
+        /// <summary>
         /// The maximum pool size.
         /// </summary>
         private readonly int maxPoolSize;
@@ -41,7 +45,7 @@ namespace FabricTableService.Journal.Database
         /// </summary>
         static PersistentTablePool()
         {
-            Microsoft.Isam.Esent.Interop.SystemParameters.MaxInstances = 1024;
+            SystemParameters.MaxInstances = 1024;
         }
 
         /// <summary>
@@ -85,7 +89,7 @@ namespace FabricTableService.Journal.Database
         /// <summary>
         /// The instance.
         /// </summary>
-        internal Microsoft.Isam.Esent.Interop.Instance Instance { get; private set; }
+        internal Instance Instance { get; private set; }
 
         /// <summary>
         /// Initializes this instance.
@@ -96,7 +100,7 @@ namespace FabricTableService.Journal.Database
             CreateDatabaseIfNotExists(this.Directory, this.DatabaseFile, this.TableName);
 
             // Initialize an instance of the database engine.
-            this.Instance = new Microsoft.Isam.Esent.Interop.Instance("instance" + $"{this.GetHashCode():X}");
+            this.Instance = new Instance("instance" + $"{this.GetHashCode():X}");
             this.Instance.Parameters.LogFileDirectory =
                 this.Instance.Parameters.SystemDirectory =
                 this.Instance.Parameters.TempDirectory =
@@ -113,47 +117,47 @@ namespace FabricTableService.Journal.Database
             }
 
             var completion = new TaskCompletionSource<int>();
-            Microsoft.Isam.Esent.Interop.Api.JetBackupInstance(
+            Api.JetBackupInstance(
                 this.Instance,
                 destination,
-                Microsoft.Isam.Esent.Interop.BackupGrbit.Atomic,
+                BackupGrbit.Atomic,
                 (sesid, snp, snt, data) =>
                 {
                     var statusString = $"({sesid}, {snp}, {snt}, {data})";
                     switch (snt)
                     {
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.Begin:
+                        case JET_SNT.Begin:
                             Trace.TraceInformation("Began backup: " + statusString);
                             break;
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.Fail:
+                        case JET_SNT.Fail:
                             Trace.TraceInformation("Failed backup: " + statusString);
                             completion.SetException(new Exception("Backup operation failed: " + statusString));
                             break;
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.Complete:
+                        case JET_SNT.Complete:
                             Trace.TraceInformation("Completed backup: " + statusString);
                             completion.SetResult(0);
                             break;
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.RecoveryStep:
+                        case JET_SNT.RecoveryStep:
                             Trace.TraceInformation("Recovery step during backup: " + statusString);
                             break;
                     }
 
-                    return Microsoft.Isam.Esent.Interop.JET_err.Success;
+                    return JET_err.Success;
                 });
             return completion.Task;
         }
 
-        public Task Restore(string source, string destination)
+        public async Task Restore(string source, string destination)
         {
             // Initialize an instance of the database engine.
-            this.Instance = new Microsoft.Isam.Esent.Interop.Instance("instance" + $"{this.GetHashCode():X}");
+            this.Instance = new Instance("instance" + $"{this.GetHashCode():X}");
             this.Instance.Parameters.LogFileDirectory =
                 this.Instance.Parameters.SystemDirectory =
                 this.Instance.Parameters.TempDirectory =
                 this.Instance.Parameters.AlternateDatabaseRecoveryDirectory = this.Directory;
             this.Instance.Parameters.CircularLog = true;
             var completion = new TaskCompletionSource<int>();
-            Microsoft.Isam.Esent.Interop.Api.JetRestoreInstance(
+            Api.JetRestoreInstance(
                 this.Instance,
                 source,
                 destination,
@@ -162,25 +166,26 @@ namespace FabricTableService.Journal.Database
                     var statusString = $"({sesid}, {snp}, {snt}, {data})";
                     switch (snt)
                     {
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.Begin:
+                        case JET_SNT.Begin:
                             Trace.TraceInformation("Began restore: " + statusString);
                             break;
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.Fail:
+                        case JET_SNT.Fail:
                             Trace.TraceInformation("Failed restore: " + statusString);
                             completion.SetException(new Exception("Restore operation failed: " + statusString));
                             break;
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.Complete:
+                        case JET_SNT.Complete:
                             Trace.TraceInformation("Completed restore: " + statusString);
                             completion.SetResult(0);
                             break;
-                        case Microsoft.Isam.Esent.Interop.JET_SNT.RecoveryStep:
+                        case JET_SNT.RecoveryStep:
                             Trace.TraceInformation("Recovery step during restore: " + statusString);
                             break;
                     }
 
-                    return Microsoft.Isam.Esent.Interop.JET_err.Success;
+                    return JET_err.Success;
                 });
-            return completion.Task;
+            await completion.Task;
+            this.Instance.Init();
         }
 
         public PersistentTable<TKey, TValue> Take()
@@ -210,18 +215,18 @@ namespace FabricTableService.Journal.Database
 
         private PersistentTable<TKey, TValue> CreateInstance()
         {
-            var session = new Microsoft.Isam.Esent.Interop.Session(this.Instance);
+            var session = new Session(this.Instance);
 
             // Open the database.
             var database = OpenDatabase(session, Path.Combine(this.Directory, this.DatabaseFile));
 
             // Get a reference to the table.
-            var table = new Microsoft.Isam.Esent.Interop.Table(session, database, this.TableName, Microsoft.Isam.Esent.Interop.OpenTableGrbit.None);
+            var table = new Table(session, database, this.TableName, OpenTableGrbit.None);
 
             // Get references to the columns.
-            var columns = Microsoft.Isam.Esent.Interop.Api.GetColumnDictionary(session, table);
+            var columns = Api.GetColumnDictionary(session, table);
 
-            return new PersistentTable<TKey, TValue>
+            var result = new PersistentTable<TKey, TValue>
             {
                 Table = table,
                 Session = session,
@@ -229,6 +234,9 @@ namespace FabricTableService.Journal.Database
                 ValueColumn = columns["value"],
                 SessionHandle = GCHandle.Alloc(session)
             };
+            
+            this.allInstances.Add(result);
+            return result;
         }
 
         /// <summary>
@@ -243,12 +251,12 @@ namespace FabricTableService.Journal.Database
         /// <returns>
         /// The <see cref="Microsoft.Isam.Esent.Interop.JET_DBID"/>.
         /// </returns>
-        private static Microsoft.Isam.Esent.Interop.JET_DBID OpenDatabase(Microsoft.Isam.Esent.Interop.Session session, string databaseFile)
+        private static JET_DBID OpenDatabase(Session session, string databaseFile)
         {
             Trace.TraceInformation($"Opening database '{databaseFile}'.");
-            Microsoft.Isam.Esent.Interop.JET_DBID database;
-            Microsoft.Isam.Esent.Interop.Api.JetAttachDatabase(session, databaseFile, Microsoft.Isam.Esent.Interop.AttachDatabaseGrbit.None);
-            Microsoft.Isam.Esent.Interop.Api.JetOpenDatabase(session, databaseFile, null, out database, Microsoft.Isam.Esent.Interop.OpenDatabaseGrbit.None);
+            JET_DBID database;
+            Api.JetAttachDatabase(session, databaseFile, AttachDatabaseGrbit.None);
+            Api.JetOpenDatabase(session, databaseFile, null, out database, OpenDatabaseGrbit.None);
 
             Trace.TraceInformation("Successfully opened database.");
             return database;
@@ -298,29 +306,29 @@ namespace FabricTableService.Journal.Database
         /// </param>
         private static void CreateDatabase(string directory, string databaseFile, string tableName)
         {
-            using (var instance = new Microsoft.Isam.Esent.Interop.Instance("createdatabase" + Guid.NewGuid().ToString("N")))
+            using (var instance = new Instance("createdatabase" + Guid.NewGuid().ToString("N")))
             {
                 instance.Parameters.LogFileDirectory = directory;
                 instance.Parameters.SystemDirectory = directory;
                 instance.Parameters.TempDirectory = directory;
                 instance.Init();
-                using (var session = new Microsoft.Isam.Esent.Interop.Session(instance))
+                using (var session = new Session(instance))
                 {
-                    Microsoft.Isam.Esent.Interop.JET_DBID database;
-                    Microsoft.Isam.Esent.Interop.Api.JetCreateDatabase(
+                    JET_DBID database;
+                    Api.JetCreateDatabase(
                         session,
                         Path.Combine(directory, databaseFile),
                         null,
                         out database,
-                        Microsoft.Isam.Esent.Interop.CreateDatabaseGrbit.OverwriteExisting);
-                    using (var tx = new Microsoft.Isam.Esent.Interop.Transaction(session))
+                        CreateDatabaseGrbit.OverwriteExisting);
+                    using (var tx = new Transaction(session))
                     {
-                        Microsoft.Isam.Esent.Interop.JET_TABLEID table;
+                        JET_TABLEID table;
                         Trace.TraceInformation($"Creating table '{tableName}'");
-                        Microsoft.Isam.Esent.Interop.Api.JetCreateTable(session, database, tableName, 16, 100, out table);
+                        Api.JetCreateTable(session, database, tableName, 16, 100, out table);
                         CreateColumnsAndIndexes(session, table);
-                        Microsoft.Isam.Esent.Interop.Api.JetCloseTable(session, table);
-                        tx.Commit(Microsoft.Isam.Esent.Interop.CommitTransactionGrbit.None);
+                        Api.JetCloseTable(session, table);
+                        tx.Commit(CommitTransactionGrbit.None);
                     }
                     
                     Trace.TraceInformation($"Created table '{tableName}'.");
@@ -337,46 +345,52 @@ namespace FabricTableService.Journal.Database
         /// <param name="table">
         /// The table.
         /// </param>
-        private static void CreateColumnsAndIndexes(Microsoft.Isam.Esent.Interop.Session session, Microsoft.Isam.Esent.Interop.JET_TABLEID table)
+        private static void CreateColumnsAndIndexes(Session session, JET_TABLEID table)
         {
-            Microsoft.Isam.Esent.Interop.JET_COLUMNID column;
-            var keyDefinition = new Microsoft.Isam.Esent.Interop.JET_COLUMNDEF { coltyp = Converters.KeyColtyp };
-            var valueDefinition = new Microsoft.Isam.Esent.Interop.JET_COLUMNDEF { coltyp = Converters.ValueColtyp };
+            JET_COLUMNID column;
+            var keyDefinition = new JET_COLUMNDEF { coltyp = Converters.KeyColtyp };
+            var valueDefinition = new JET_COLUMNDEF { coltyp = Converters.ValueColtyp };
 
             if (typeof(TValue) == typeof(string))
             {
-                valueDefinition.cp = Microsoft.Isam.Esent.Interop.JET_CP.Unicode;
+                valueDefinition.cp = JET_CP.Unicode;
                 valueDefinition.cbMax = int.MaxValue;
             }
 
             if (typeof(TKey) == typeof(string))
             {
-                keyDefinition.cp = Microsoft.Isam.Esent.Interop.JET_CP.Unicode;
+                keyDefinition.cp = JET_CP.Unicode;
                 keyDefinition.cbMax = int.MaxValue;
             }
 
             // Add a key and a value column.
-            Microsoft.Isam.Esent.Interop.Api.JetAddColumn(session, table, "key", keyDefinition, null, 0, out column);
-            Microsoft.Isam.Esent.Interop.Api.JetAddColumn(session, table, "value", valueDefinition, null, 0, out column);
+            Api.JetAddColumn(session, table, "key", keyDefinition, null, 0, out column);
+            Api.JetAddColumn(session, table, "value", valueDefinition, null, 0, out column);
 
             // Create the primary index.
             const string PrimaryIndexDefinition = "+key\0\0";
-            Microsoft.Isam.Esent.Interop.Api.JetCreateIndex(
+            Api.JetCreateIndex(
                 session,
                 table,
                 PersistentTableConstants.PrimaryIndexName,
-                Microsoft.Isam.Esent.Interop.CreateIndexGrbit.IndexPrimary,
+                CreateIndexGrbit.IndexPrimary,
                 PrimaryIndexDefinition,
                 PrimaryIndexDefinition.Length,
                 100);
         }
 
-        void IDisposable.Dispose()
+        /// <summary>
+        /// Disposes this instance.
+        /// </summary>
+        public void Dispose()
         {
+            this.pool.CompleteAdding();
+            this.pool.Dispose();
+
             PersistentTable<TKey, TValue> table;
-            while (this.pool.TryTake(out table))
+            while (this.allInstances.TryTake(out table))
             {
-                ((IDisposable)table).Dispose();
+                table.Dispose();
             }
 
             var instance = this.Instance;
@@ -385,7 +399,7 @@ namespace FabricTableService.Journal.Database
                 return;
             }
 
-            instance.TermGrbit = Microsoft.Isam.Esent.Interop.TermGrbit.Complete;
+            instance.TermGrbit = TermGrbit.Complete;
             instance.Term();
             instance.Dispose();
             this.Instance = null;
