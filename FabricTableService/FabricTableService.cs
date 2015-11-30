@@ -13,11 +13,11 @@ namespace FabricTableService
     /// </summary>
     public class FabricTableService : StatefulService, ITableStoreService
     {
-        private readonly TaskCompletionSource<DistributedJournal<string, byte[]>> journalTask = new TaskCompletionSource<DistributedJournal<string, byte[]>>();
+        private readonly TaskCompletionSource<ReliableTable<string, byte[]>> journalTask = new TaskCompletionSource<ReliableTable<string, byte[]>>();
 
         public async Task Delete(string key, string partition)
         {
-            var journal = await journalTask.Task;
+            var journal = await this.journalTask.Task;
             using (var tx = this.StateManager.CreateTransaction())
             {
                 journal.TryRemove(tx, key);
@@ -27,18 +27,18 @@ namespace FabricTableService
 
         public async Task<byte[]> Get(string key, string partition)
         {
-            var journal = await journalTask.Task;
+            var journal = await this.journalTask.Task;
             using (var tx = this.StateManager.CreateTransaction())
             {
-                var value = journal.GetValue(tx, key);
+                var result = journal.GetValue(tx, key);
                 await tx.CommitAsync();
-                return value.Item2;
+                return result.Value;
             }
         }
 
         public async Task Insert(string key, string partition, byte[] value)
         {
-            var journal = await journalTask.Task;
+            var journal = await this.journalTask.Task;
             using (var tx = this.StateManager.CreateTransaction())
             {
                 journal.SetValue(tx, key, value);
@@ -72,10 +72,11 @@ namespace FabricTableService
         /// </returns>
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
-            //var myDictionary = await this.StateManager.GetOrAddAsync<IReliableDictionary<string, long>>("myDictionary");
-            this.journalTask.SetResult(
-                await this.StateManager.GetOrAddAsync<DistributedJournal<string, byte[]>>("journal"));
+            var myDictionary = await this.StateManager.GetOrAddAsync<IReliableDictionary<string, byte[]>>("myDictionary");
+            var journal = await this.StateManager.GetOrAddAsync<ReliableTable<string, byte[]>>("journal");
+            this.journalTask.SetResult(journal);
             
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(5000, cancellationToken);

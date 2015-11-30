@@ -10,6 +10,10 @@ namespace FabricTableService.Utilities
     using System.IO;
     using System.Runtime.Serialization.Formatters.Binary;
 
+    using global::FabricTableService.Journal;
+
+    using Microsoft.IO;
+
     /// <summary>
     /// The binary serialization extensions.
     /// </summary>
@@ -27,7 +31,7 @@ namespace FabricTableService.Utilities
             switch (Type.GetTypeCode(typeof(T)))
             {
                 default:
-                    using (var ms = new MemoryStream())
+                    using (var ms = MemoryStreamManager.Pool.GetStream("WriteObject"))
                     {
                         var bf = new BinaryFormatter();
                         bf.Serialize(ms, boxed);
@@ -100,7 +104,7 @@ namespace FabricTableService.Utilities
                 default:
                     var length = reader.ReadInt32();
                     var bytes = reader.ReadBytes(length);
-                    using (var ms = new MemoryStream(bytes))
+                    using (var ms = MemoryStreamManager.Pool.GetStream("WriteObject", bytes, 0, bytes.Length))
                     {
                         var bf = new BinaryFormatter();
                         result = bf.Deserialize(ms);

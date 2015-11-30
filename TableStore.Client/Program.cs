@@ -8,6 +8,8 @@ using TableStore.Interface;
 namespace TableStore.Client
 {
     using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
     using System.Text;
 
@@ -36,23 +38,53 @@ namespace TableStore.Client
                 clientFactory,
                 new Uri("fabric:/FabricTableServiceApplication/FabricTableService"), partitionKey: 0);
 
-            var iteration = 0;
-            var value = (long)0;
+            var tasks = new Task[15];
+            var iteration = (long)0;
+
+            // Initialize.
+            for (var i = 0; i < tasks.Length; ++i)
+            {
+                await Set(client, i.ToString(), iteration);
+            }
+
+            var timer = Stopwatch.StartNew();
             while (true)
             {
-                var expected = value + 1;
-                await Set(client, "a", expected);
-                value = await Get(client, "a");
-                if (value != expected)
+                for (var i = 0; i < tasks.Length; ++i)
                 {
-                    Console.WriteLine($"[{DateTime.Now}] Expected {expected} but encountered {value}. Iteration {iteration++}.");
+                    tasks[i] = CheckAndIncrement(client, i.ToString(), iteration);
                 }
 
+                await Task.WhenAll(tasks);
+
+                var total = iteration * tasks.Length;
                 if (iteration%100 == 0)
                 {
-                    Console.Write('.');
+                    //Console.Write('.');
+                    Console.WriteLine($"{iteration} iterations in {timer.ElapsedMilliseconds}ms. {total *1000/ ( timer.ElapsedMilliseconds)}/sec");
                 }
+
+                if (iteration % 8000 == 0 && timer.ElapsedMilliseconds > 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"{iteration} iterations in {timer.ElapsedMilliseconds}ms. {total*1000/(timer.ElapsedMilliseconds)}/sec");
+                }
+
+                iteration++;
             }
+        }
+
+        private static async Task CheckAndIncrement(ServicePartitionClient<WcfCommunicationClient<ITableStoreService>> client, string key, long expected)
+        {
+            var serialized = await client.InvokeWithRetryAsync(_ => _.Channel.Get(key, null));
+            var value = BitConverter.ToInt64(serialized, 0);
+
+            if (value != expected)
+            {
+                throw new Exception($"[{DateTime.Now}] Expected {expected} but encountered {value}.");
+            }
+
+            await client.InvokeWithRetryAsync(_ => _.Channel.Insert(key, null, BitConverter.GetBytes(value + 1)));
         }
 
         private static async Task<long> Get(ServicePartitionClient<WcfCommunicationClient<ITableStoreService>> client, string key)

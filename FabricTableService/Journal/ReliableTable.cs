@@ -19,12 +19,10 @@ namespace FabricTableService.Journal
 
     using Microsoft.ServiceFabric.Data;
 
-    using ESENT = Microsoft.Isam.Esent.Interop;
-
     /// <summary>
     /// The distributed journal.
     /// </summary>
-    public partial class DistributedJournal<TKey, TValue> : IDisposable
+    public partial class ReliableTable<TKey, TValue> : IDisposable
     {
         /// <summary>
         /// The pool of tables.
@@ -59,6 +57,7 @@ namespace FabricTableService.Journal
         {
             return this.tables.Restore(backupPath, this.tables.Directory);
         }
+
         public Task RestoreTo(string backupPath, string destination)
         {
             return this.tables.Restore(backupPath, destination);
@@ -83,22 +82,24 @@ namespace FabricTableService.Journal
             var id = Interlocked.Increment(ref this.operationNumber);
 
             Operation undo, redo;
-            var table = this.tables.Take();
+            var dbTransaction = this.tables.CreateTransaction();
             try
             {
                 TValue initialValue;
-                if (table.TryGetValue(key, out initialValue))
+                if (dbTransaction.Table.TryGetValue(key, out initialValue))
                 {
-                    undo = new SetOperation {Key = key, Value = initialValue, Id = id};
+                    undo = new SetOperation { Key = key, Value = initialValue, Id = id };
                 }
                 else
                 {
-                    undo = new RemoveOperation {Key = key, Id = id};
+                    undo = new RemoveOperation { Key = key, Id = id };
                 }
             }
-            finally
+            catch
             {
-                this.tables.Return(table);
+                dbTransaction.Rollback();
+                dbTransaction.Dispose();
+                throw;
             }
 
             if (value == null)
@@ -110,37 +111,51 @@ namespace FabricTableService.Journal
                 redo = new SetOperation { Key = key, Value = value, Id = id };
             }
 
-            this.PerformOperation<object>(id, transaction, undo, redo);
+            this.PerformOperation<object>(
+                id,
+                new OperationContext { DatabaseTransaction = dbTransaction, ReplicatorTransaction = transaction },
+                undo,
+                redo);
         }
 
-        public bool TryRemove(ITransaction tx, TKey key, long version = -1)
+        public ConditionalResult<TValue> TryRemove(ITransaction tx, TKey key, long version = -1)
         {
             var transaction = tx.GetTransaction();
 
             var id = Interlocked.Increment(ref this.operationNumber);
             Operation undo;
-            var table = this.tables.Take();
+            var dbTransaction = this.tables.CreateTransaction();
+            ConditionalResult<TValue> result;
             try
             {
                 TValue initialValue;
-
-                if (table.TryGetValue(key, out initialValue))
+                if (dbTransaction.Table.TryGetValue(key, out initialValue))
                 {
-                    undo = new SetOperation {Key = key, Value = initialValue, Id = id};
+                    undo = new SetOperation { Key = key, Value = initialValue, Id = id };
+                    result = new ConditionalResult<TValue>(true, initialValue);
                 }
                 else
                 {
-                    undo = new RemoveOperation {Key = key, Id = id};
+                    undo = NopOperation.Instance;
+                    result = new ConditionalResult<TValue>();
                 }
             }
-            finally
+            catch
             {
-                this.tables.Return(table);
+                dbTransaction.Rollback();
+                dbTransaction.Dispose();
+                throw;
             }
 
-            var redo = new RemoveOperation {Key = key, Id = id};
+            var redo = new RemoveOperation { Key = key, Id = id };
 
-            return this.PerformOperation<bool>(id, transaction, undo, redo);
+            this.PerformOperation<object>(
+                id,
+                new OperationContext { DatabaseTransaction = dbTransaction, ReplicatorTransaction = transaction },
+                undo,
+                redo);
+
+            return result;
         }
 
         /// <summary>
@@ -149,12 +164,19 @@ namespace FabricTableService.Journal
         /// <returns>
         /// The <see cref="string"/>.
         /// </returns>
-        public Tuple<bool, TValue> GetValue(ITransaction tx, TKey key)
+        public ConditionalResult<TValue> GetValue(ITransaction tx, TKey key)
         {
             var transaction = tx.GetTransaction();
             var id = Interlocked.Increment(ref this.operationNumber);
-            return this.PerformOperation<Tuple<bool, TValue>>(id, transaction, NopOperation.Instance,
-                new GetOperation {Key = key, Id = id});
+            return this.PerformOperation<ConditionalResult<TValue>>(
+                id,
+                new OperationContext
+                {
+                    DatabaseTransaction = this.tables.CreateTransaction(),
+                    ReplicatorTransaction = transaction
+                },
+                NopOperation.Instance,
+                new GetOperation { Key = key, Id = id });
         }
 
         /// <summary>
@@ -165,21 +187,11 @@ namespace FabricTableService.Journal
         /// </returns>
         public IEnumerable<KeyValuePair<TKey, TValue>> GetRange(TKey minKey, TKey maxKey)
         {
-            var table = this.tables.Take();
-            try
+            using (var tx = this.tables.CreateTransaction())
             {
-                using (var tx = new ESENT.Transaction(table.Session))
-                {
-                    ESENT.Api.JetSetSessionContext(table.Session, table.Context);
-                    var range = table.GetRange(minKey, maxKey);
-                    tx.Commit(ESENT.CommitTransactionGrbit.None);
-                    return range;
-                }
-            }
-            finally
-            {
-                ESENT.Api.JetResetSessionContext(table.Session);
-                this.tables.Return(table);
+                var range = tx.Table.GetRange(minKey, maxKey);
+                tx.Commit();
+                return range;
             }
         }
 
@@ -191,21 +203,11 @@ namespace FabricTableService.Journal
         /// </returns>
         public IEnumerable<KeyValuePair<TKey, TValue>> GetGreaterThan(TKey minKey, long maxResults)
         {
-            var table = this.tables.Take();
-            try
+            using (var tx = this.tables.CreateTransaction())
             {
-                using (var tx = new ESENT.Transaction(table.Session))
-                {
-                    ESENT.Api.JetSetSessionContext(table.Session, table.Context);
-                    var range = table.GetRange(minKey, maxValues: maxResults);
-                    tx.Commit(ESENT.CommitTransactionGrbit.None);
-                    return range;
-                }
-            }
-            finally
-            {
-                ESENT.Api.JetResetSessionContext(table.Session);
-                this.tables.Return(table);
+                var range = tx.Table.GetRange(minKey, maxValues: maxResults);
+                tx.Commit();
+                return range;
             }
         }
 
@@ -217,21 +219,11 @@ namespace FabricTableService.Journal
         /// </returns>
         public IEnumerable<KeyValuePair<TKey, TValue>> GetLessThan(TKey maxKey, long maxResults)
         {
-            var table = this.tables.Take();
-            try
+            using (var tx = this.tables.CreateTransaction())
             {
-                using (var tx = new ESENT.Transaction(table.Session))
-                {
-                    ESENT.Api.JetSetSessionContext(table.Session, table.Context);
-                    var range = table.GetRange(upperBound: maxKey, maxValues: maxResults);
-                    tx.Commit(ESENT.CommitTransactionGrbit.None);
-                    return range;
-                }
-            }
-            finally
-            {
-                ESENT.Api.JetResetSessionContext(table.Session);
-                this.tables.Return(table);
+                var range = tx.Table.GetRange(upperBound: maxKey, maxValues: maxResults);
+                tx.Commit();
+                return range;
             }
         }
     }

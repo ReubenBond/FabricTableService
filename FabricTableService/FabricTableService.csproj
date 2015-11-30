@@ -12,6 +12,21 @@
     <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <PublishUrl>publish\</PublishUrl>
+    <Install>true</Install>
+    <InstallFrom>Disk</InstallFrom>
+    <UpdateEnabled>false</UpdateEnabled>
+    <UpdateMode>Foreground</UpdateMode>
+    <UpdateInterval>7</UpdateInterval>
+    <UpdateIntervalUnits>Days</UpdateIntervalUnits>
+    <UpdatePeriodically>false</UpdatePeriodically>
+    <UpdateRequired>false</UpdateRequired>
+    <MapFileExtensions>true</MapFileExtensions>
+    <ApplicationRevision>0</ApplicationRevision>
+    <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
+    <IsWebBootstrapper>false</IsWebBootstrapper>
+    <UseApplicationTrust>false</UseApplicationTrust>
+    <BootstrapperEnabled>true</BootstrapperEnabled>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <PlatformTarget>x64</PlatformTarget>
@@ -38,6 +53,10 @@
   <ItemGroup>
     <Reference Include="Esent.Interop">
       <HintPath>..\packages\ManagedEsent.1.9.2.0\lib\net40\Esent.Interop.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.IO.RecyclableMemoryStream, Version=1.1.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\packages\Microsoft.IO.RecyclableMemoryStream.1.1.0.0\lib\net45\Microsoft.IO.RecyclableMemoryStream.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.ServiceFabric.Data, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
       <HintPath>..\packages\Microsoft.ServiceFabric.Data.1.0.328-preview1\lib\net45\Microsoft.ServiceFabric.Data.dll</HintPath>
@@ -69,18 +88,21 @@
     <Reference Include="System.ServiceModel" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Journal\Database\DatabaseTransaction.cs" />
     <Compile Include="Journal\Database\PersistentTableConstants.cs" />
     <Compile Include="Journal\Database\PersistentTablePool.cs" />
+    <Compile Include="Utilities\MemoryStreamManager.cs" />
     <Compile Include="Json\GuidJsonConverter.cs" />
     <Compile Include="Json\JsonContractResolver.cs" />
     <Compile Include="Json\SerializationSettings.cs" />
     <Compile Include="Utilities\BinarySerializationExtensions.cs" />
     <Compile Include="Journal\Database\ColumnConverter.cs" />
-    <Compile Include="Journal\DistributedJournal.cs" />
-    <Compile Include="Journal\DistributedJournal.StateProvider.cs" />
+    <Compile Include="Journal\ReliableTable.cs" />
+    <Compile Include="Journal\ReliableTable.StateProvider.cs" />
     <Compile Include="Journal\Database\KeyColumnConverter.cs" />
     <Compile Include="Journal\Database\DatabaseTypeConverters.cs" />
     <Compile Include="Journal\Database\PersistentTable.cs" />
+    <Compile Include="Utilities\ExceptionLogging.cs" />
     <Compile Include="Utilities\TransactionExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="FabricTableService.cs" />
@@ -88,7 +110,7 @@
     <Compile Include="ServiceEventSource.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Journal\DistributedJournal.Operations.cs" />
+    <Compile Include="Journal\ReliableTable.Operations.cs" />
     <None Include="PackageRoot\Config\Settings.xml" />
     <None Include="PackageRoot\ServiceManifest.xml" />
     <None Include="App.config" />
@@ -99,6 +121,18 @@
       <Project>{a5de67bc-ab45-41f9-a342-5b827d9fd7a1}</Project>
       <Name>TableStore.Interface</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <BootstrapperPackage Include=".NETFramework,Version=v4.6">
+      <Visible>False</Visible>
+      <ProductName>Microsoft .NET Framework 4.6 %28x86 and x64%29</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
+    <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
+      <Visible>False</Visible>
+      <ProductName>.NET Framework 3.5 SP1</ProductName>
+      <Install>false</Install>
+    </BootstrapperPackage>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

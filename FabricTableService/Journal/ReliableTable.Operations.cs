@@ -11,14 +11,15 @@ namespace FabricTableService.Journal
 {
     using System;
     using System.Collections.Generic;
-    using System.Diagnostics;
     using System.IO;
 
     using global::FabricTableService.Journal.Database;
     using global::FabricTableService.Utilities;
 
+    using Microsoft.ServiceFabric.Data;
+
     /// <summary>
-    /// The distributed journal.
+    /// A distributed journal.
     /// </summary>
     /// <typeparam name="TKey">
     /// The key type.
@@ -26,8 +27,39 @@ namespace FabricTableService.Journal
     /// <typeparam name="TValue">
     /// The value type.
     /// </typeparam>
-    public partial class DistributedJournal<TKey, TValue>
+    public partial class ReliableTable<TKey, TValue>
     {
+        /// <summary>
+        /// The operation type id, used to uniquely identify an operation.
+        /// </summary>
+        public enum OperationType : ushort
+        {
+            /// <summary>
+            /// The none.
+            /// </summary>
+            None,
+
+            /// <summary>
+            /// The set.
+            /// </summary>
+            Set = 1,
+
+            /// <summary>
+            /// Removes an item.
+            /// </summary>
+            Remove,
+
+            /// <summary>
+            /// Gets an item.
+            /// </summary>
+            Get,
+
+            /// <summary>
+            /// Null operation.
+            /// </summary>
+            Nop
+        }
+
         /// <summary>
         /// The operation.
         /// </summary>
@@ -57,42 +89,12 @@ namespace FabricTableService.Journal
             /// </summary>
             static Operation()
             {
+                // Create the mapping between types and operations.
                 foreach (var constructor in Constructors)
                 {
                     var type = constructor.Value().GetType();
                     OperationTypes[type] = constructor.Key;
                 }
-            }
-            
-            /// <summary>
-            /// The type id.
-            /// </summary>
-            public enum OperationType : ushort
-            {
-                /// <summary>
-                /// The none.
-                /// </summary>
-                None,
-
-                /// <summary>
-                /// The set.
-                /// </summary>
-                Set = 1,
-
-                /// <summary>
-                /// Removes an item.
-                /// </summary>
-                Remove,
-
-                /// <summary>
-                /// Gets an item.
-                /// </summary>
-                Get,
-
-                /// <summary>
-                /// Null operation.
-                /// </summary>
-                Nop
             }
 
             /// <summary>
@@ -126,10 +128,10 @@ namespace FabricTableService.Journal
             {
                 try
                 {
-                    using (var mem = new MemoryStream(bytes))
-                    using (var br = new BinaryReader(mem))
+                    using (var mem = MemoryStreamManager.Pool.GetStream("Deseralize", bytes, 0, bytes.Length))
+                    using (var reader = new BinaryReader(mem))
                     {
-                        var type = (OperationType)br.ReadUInt16();
+                        var type = (OperationType)reader.ReadUInt16();
                         Func<Operation> constructor;
 
                         if (!Constructors.TryGetValue(type, out constructor))
@@ -138,7 +140,9 @@ namespace FabricTableService.Journal
                         }
 
                         var result = constructor();
-                        result.DeserializeInternal(br);
+                        result.Version = reader.ReadInt64();
+                        result.Id = reader.ReadInt64();
+                        result.DeserializeInternal(reader);
                         return result;
                     }
                 }
@@ -154,10 +158,12 @@ namespace FabricTableService.Journal
             /// <returns>The serialized operation.</returns>
             public byte[] Serialize()
             {
-                using (var mem = new MemoryStream())
+                using (var mem = MemoryStreamManager.Pool.GetStream("Serialize"))
                 using (var writer = new BinaryWriter(mem))
                 {
                     writer.Write((ushort)this.Type);
+                    writer.Write(this.Version);
+                    writer.Write(this.Id);
                     this.SerializeInternal(writer);
                     return mem.ToArray();
                 }
@@ -205,7 +211,6 @@ namespace FabricTableService.Journal
             public override object Apply(PersistentTable<TKey, TValue> table)
             {
                 table.AddOrUpdate(this.Key, this.Value);
-                Trace.TraceInformation($"After Set {this.Key} = {this.Value}, value is {table.Get(this.Key)}");
                 return null;
             }
 
@@ -215,8 +220,6 @@ namespace FabricTableService.Journal
             /// <param name="reader">The reader.</param>
             protected override void DeserializeInternal(BinaryReader reader)
             {
-                this.Version = reader.ReadInt64();
-                this.Id = reader.ReadInt64();
                 this.Key = reader.ReadObject<TKey>();
                 this.Value = reader.ReadObject<TValue>();
             }
@@ -227,8 +230,6 @@ namespace FabricTableService.Journal
             /// <param name="writer">The writer.</param>
             protected override void SerializeInternal(BinaryWriter writer)
             {
-                writer.Write(this.Version);
-                writer.Write(this.Id);
                 writer.WriteObject(this.Key);
                 writer.WriteObject(this.Value);
             }
@@ -251,9 +252,7 @@ namespace FabricTableService.Journal
             public override object Apply(PersistentTable<TKey, TValue> table)
             {
                 TValue value;
-                var result = table.TryRemove(this.Key, out value);
-
-                return result;
+                return table.TryRemove(this.Key, out value);
             }
 
             /// <summary>
@@ -262,8 +261,6 @@ namespace FabricTableService.Journal
             /// <param name="reader">The reader.</param>
             protected override void DeserializeInternal(BinaryReader reader)
             {
-                this.Version = reader.ReadInt64();
-                this.Id = reader.ReadInt64();
                 this.Key = reader.ReadObject<TKey>();
             }
 
@@ -273,8 +270,6 @@ namespace FabricTableService.Journal
             /// <param name="writer">The writer.</param>
             protected override void SerializeInternal(BinaryWriter writer)
             {
-                writer.Write(this.Version);
-                writer.Write(this.Id);
                 writer.WriteObject(this.Key);
             }
         }
@@ -297,8 +292,7 @@ namespace FabricTableService.Journal
             {
                 TValue value;
                 var result = table.TryGetValue(this.Key, out value);
-
-                return Tuple.Create(result, value);
+                return new ConditionalResult<TValue>(result, value);
             }
 
             /// <summary>
@@ -307,8 +301,6 @@ namespace FabricTableService.Journal
             /// <param name="reader">The reader.</param>
             protected override void DeserializeInternal(BinaryReader reader)
             {
-                this.Version = reader.ReadInt64();
-                this.Id = reader.ReadInt64();
                 this.Key = reader.ReadObject<TKey>();
             }
 
@@ -318,8 +310,6 @@ namespace FabricTableService.Journal
             /// <param name="writer">The writer.</param>
             protected override void SerializeInternal(BinaryWriter writer)
             {
-                writer.Write(this.Version);
-                writer.Write(this.Id);
                 writer.WriteObject(this.Key);
             }
         }
@@ -332,6 +322,7 @@ namespace FabricTableService.Journal
             /// <summary>
             /// A null operation.
             /// </summary>
+            // ReSharper disable once StaticMemberInGenericType
             public static readonly NopOperation Instance = new NopOperation();
 
             /// <summary>
@@ -349,8 +340,6 @@ namespace FabricTableService.Journal
             /// <param name="reader">The reader.</param>
             protected override void DeserializeInternal(BinaryReader reader)
             {
-                this.Version = reader.ReadInt64();
-                this.Id = reader.ReadInt64();
             }
 
             /// <summary>
@@ -359,8 +348,6 @@ namespace FabricTableService.Journal
             /// <param name="writer">The writer.</param>
             protected override void SerializeInternal(BinaryWriter writer)
             {
-                writer.Write(this.Version);
-                writer.Write(this.Id);
             }
         }
     }

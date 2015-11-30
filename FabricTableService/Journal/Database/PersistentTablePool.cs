@@ -201,10 +201,22 @@ namespace FabricTableService.Journal.Database
                 {
                     // Undo what we just did and wait for a free instance.
                     Interlocked.Decrement(ref this.created);
+                    Trace.TraceWarning("Blocking to wait for a free table.");
                     this.pool.Take();
                 }
             }
 
+            return result;
+        }
+
+        /// <summary>
+        /// Returns a new initialized transaction.
+        /// </summary>
+        /// <returns>A new, initialized transaction.</returns>
+        public DatabaseTransaction<TKey, TValue> CreateTransaction()
+        {
+            var result = new DatabaseTransaction<TKey, TValue> { Pool = this, Table = this.Take() };
+            result.Start();
             return result;
         }
 

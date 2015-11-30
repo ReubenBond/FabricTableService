@@ -37,7 +37,7 @@ namespace FabricTableService.Journal
     /// <typeparam name="TValue">
     /// The value type.
     /// </typeparam>
-    public partial class DistributedJournal<TKey, TValue> : IStateProvider2, IReliableState
+    public partial class ReliableTable<TKey, TValue> : IStateProvider2, IReliableState
     {
         /// <summary>
         /// The state replicator.
@@ -397,95 +397,80 @@ namespace FabricTableService.Journal
             byte[] data,
             ApplyContext applyContext)
         {
-            var context = default(OperationContext);
+            // Get the operation.
             var operation = Operation.Deserialize(data);
-            if (IsPrimaryOperation(applyContext))
+
+            // Resume the existing transaction for this operation or start a transaction for this operation.
+            bool applied;
+            OperationContext context;
+            DatabaseTransaction<TKey,TValue> tx;
+            if (IsPrimaryOperation(applyContext) && this.inProgressOperations.TryGetValue(operation.Id, out context))
             {
-                this.inProgressOperations.TryGetValue(operation.Id, out context);
+                applied = true;
+                tx = context.DatabaseTransaction;
+                tx.Resume();
+            }
+            else
+            {
+                // The operation has not yet been applied and therefore a transaction has not been initiated.
+                applied = false;
+                tx = this.tables.CreateTransaction();
             }
 
-            var part = this.replicator.StatefulPartition;
+            /*var part = this.replicator.StatefulPartition;
             var operationString = JsonConvert.SerializeObject(operation, SerializationSettings.JsonConfig);
             Trace.TraceInformation(
-                $"[{this.partitionId} r:{part.ReadStatus} w:{part.WriteStatus}] ApplyAsync(lsn: {lsn}, tx: {transactionBase.Id}, op: {operationString} (length: {data?.Length ?? 0}), context: {applyContext})");
-
-            var table = context.Table ?? this.tables.Take();
-            var transaction = context.DatabaseTransaction ?? new ESENT.Transaction(table.Session);
-
+                $"[{this.partitionId}/{this.replicator.InitializationParameters.ReplicaId} r:{part.ReadStatus} w:{part.WriteStatus}] ApplyAsync(lsn: {lsn}, tx: {transactionBase.Id}, op: {operationString} (length: {data?.Length ?? 0}), context: {applyContext})");
+            */
             try
             {
-                ESENT.Api.JetSetSessionContext(table.Session, table.Context);
-                var result = default(object);
-
-                // If an existing transaction did not exist, apply the operation in the current transaction.
-                if (context.DatabaseTransaction == null)
+                // If the operation has not yet been applied, apply it.
+                if (!applied)
                 {
-                    Trace.TraceInformation($"{applyContext} Apply {operationString}");
-                    result = operation.Apply(table);
+                    //Trace.TraceInformation($"{applyContext} Apply {operationString}");
+                    operation.Apply(tx.Table);
                 }
 
-                Trace.TraceInformation($"{applyContext} Commit {operationString}");
-                
-                transaction.Commit(ESENT.CommitTransactionGrbit.None);
-
-                if (applyContext == ApplyContext.PrimaryRedo && context.SuccessCallback != null)
-                {
-                    context.SuccessCallback(result);
-                    context.SuccessCallback = null;
-                    context.FailureCallback = null;
-                }
+                //Trace.TraceInformation($"{applyContext} Commit {operationString}");
+                tx.Commit();
             }
-            catch (Exception exception) when (context.FailureCallback != null)
+            catch (Exception exception)
             {
-                transaction.Rollback();
+                tx.Rollback();
 
-                context.FailureCallback(exception);
-                context.SuccessCallback = null;
-                context.FailureCallback = null;
-                throw;
+                return Task.FromException<object>(exception);
             }
             finally
             {
-                ESENT.Api.JetResetSessionContext(table.Session);
-
                 if (IsPrimaryOperation(applyContext))
                 {
                     this.inProgressOperations.TryRemove(operation.Id, out context);
                 }
 
-                this.tables.Return(table);
+                tx.Dispose();
             }
 
             return Task.FromResult(default(object));
         }
 
-        private T PerformOperation<T>(long id, Transaction transaction, Operation undo, Operation redo)
+        private T PerformOperation<T>(long id, OperationContext context, Operation undo, Operation redo)
         {
             T result;
-            var table = this.tables.Take();
-            var dbTransaction = default(ESENT.Transaction);
+            var tx = default(DatabaseTransaction<TKey, TValue>);
             var addedToInFlightOperations = false;
             try
             {
-                ESENT.Api.JetSetSessionContext(table.Session, table.Context);
-                dbTransaction = new ESENT.Transaction(table.Session);
+                tx = context.DatabaseTransaction;
 
                 var part = this.replicator.StatefulPartition;
-                Trace.TraceInformation(
-                    $"[{this.partitionId} r:{part.ReadStatus} w:{part.WriteStatus}] PerformOperation(id: {id}, tx: {transaction.Id}, undo: {JsonConvert.SerializeObject(undo, SerializationSettings.JsonConfig)}, redo: {JsonConvert.SerializeObject(redo, SerializationSettings.JsonConfig)}");
-
+                /*Trace.TraceInformation(
+                    $"[{this.partitionId} r:{part.ReadStatus} w:{part.WriteStatus}] PerformOperation(id: {id}, tx: {context.ReplicatorTransaction.Id}, undo: {JsonConvert.SerializeObject(undo, SerializationSettings.JsonConfig)}, redo: {JsonConvert.SerializeObject(redo, SerializationSettings.JsonConfig)}");
+                    */
                 // Apply initially on primary, but do not commit.
-                result = (T)redo.Apply(table);
+                result = (T)redo.Apply(tx.Table);
 
                 // Add the operation to the in-progress collection so that we can retrieve it when it is committed.
-                addedToInFlightOperations = this.inProgressOperations.TryAdd(
-                    id,
-                    new OperationContext
-                    {
-                        ReplicatorTransaction = transaction,
-                        DatabaseTransaction = dbTransaction,
-                        Table = table
-                    });
+                addedToInFlightOperations = this.inProgressOperations.TryAdd(id, context);
 
                 if (!addedToInFlightOperations)
                 {
@@ -493,23 +478,19 @@ namespace FabricTableService.Journal
                 }
 
                 // Add this operation to the transaction.
-                transaction.AddOperation(undo.Serialize(), redo.Serialize(), null, this.Name);
+                context.ReplicatorTransaction.AddOperation(undo.Serialize(), redo.Serialize(), null, this.Name);
+                tx.Pause();
             }
             catch
             {
-                dbTransaction?.Rollback();
-                this.tables.Return(table);
+                tx.Transaction?.Rollback();
+                tx.Dispose();
                 if (addedToInFlightOperations)
                 {
-                    OperationContext context;
                     this.inProgressOperations.TryRemove(id, out context);
                 }
 
                 throw;
-            }
-            finally
-            {
-                ESENT.Api.JetResetSessionContext(table.Session);
             }
 
             return result;
@@ -623,22 +604,7 @@ namespace FabricTableService.Journal
             /// <summary>
             /// Gets or sets the database transaction.
             /// </summary>
-            public ESENT.Transaction DatabaseTransaction { get; set; }
-
-            /// <summary>
-            /// Gets or sets the table.
-            /// </summary>
-            public PersistentTable<TKey, TValue> Table { get; set; }
-
-            /// <summary>
-            /// The operation to execute on successful completion.
-            /// </summary>
-            public Action<object> SuccessCallback { get; set; }
-
-            /// <summary>
-            /// The operation to execute on failure.
-            /// </summary>
-            public Action<Exception> FailureCallback { get; set; }
+            public DatabaseTransaction<TKey, TValue> DatabaseTransaction { get; set; }
         }
     }
 }
