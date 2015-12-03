@@ -1,13 +1,4 @@
-﻿// --------------------------------------------------------------------------------------------------------------------
-// <copyright file="DistributedJournal.Operations.cs" company="">
-//   
-// </copyright>
-// <summary>
-//   The distributed journal.
-// </summary>
-// --------------------------------------------------------------------------------------------------------------------
-
-namespace FabricTableService.Journal
+﻿namespace FabricTableService.Journal
 {
     using System;
     using System.Collections.Generic;
@@ -82,7 +73,8 @@ namespace FabricTableService.Journal
             /// The operation types.
             /// </summary>
             // ReSharper disable once StaticMemberInGenericType
-            protected static readonly Dictionary<Type, OperationType> OperationTypes = new Dictionary<Type, OperationType>();
+            protected static readonly Dictionary<Type, OperationType> OperationTypes =
+                new Dictionary<Type, OperationType>();
 
             /// <summary>
             /// Initializes static members of the <see cref="Operation"/> class.
@@ -124,11 +116,16 @@ namespace FabricTableService.Journal
             /// <exception cref="ApplicationException">
             /// The operation type was unknown.
             /// </exception>
-            public static Operation Deserialize(byte[] bytes)
+            public static Operation Deserialize(ArraySegment<byte> bytes)
             {
                 try
                 {
-                    using (var mem = MemoryStreamManager.Pool.GetStream("Deseralize", bytes, 0, bytes.Length))
+                    using (
+                        var mem = MemoryStreamManager.Pool.GetStream(
+                            "Deseralize",
+                            bytes.Array,
+                            bytes.Offset,
+                            bytes.Count))
                     using (var reader = new BinaryReader(mem))
                     {
                         var type = (OperationType)reader.ReadUInt16();
@@ -338,17 +335,13 @@ namespace FabricTableService.Journal
             /// Deserializes operation-specific fields.
             /// </summary>
             /// <param name="reader">The reader.</param>
-            protected override void DeserializeInternal(BinaryReader reader)
-            {
-            }
+            protected override void DeserializeInternal(BinaryReader reader) {}
 
             /// <summary>
             /// Serializes operation-specific fields.
             /// </summary>
             /// <param name="writer">The writer.</param>
-            protected override void SerializeInternal(BinaryWriter writer)
-            {
-            }
+            protected override void SerializeInternal(BinaryWriter writer) {}
         }
     }
 }

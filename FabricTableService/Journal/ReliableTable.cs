@@ -1,7 +1,4 @@
 ﻿// --------------------------------------------------------------------------------------------------------------------
-// <copyright file="DistributedJournal.cs" company="">
-//   
-// </copyright>
 // <summary>
 //   The distributed journal.
 // </summary>

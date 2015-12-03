@@ -9,9 +9,10 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>ChaosTest</RootNamespace>
     <AssemblyName>ChaosTest</AssemblyName>
-    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
@@ -34,19 +35,22 @@
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Fabric, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64" />
-    <Reference Include="System.Fabric.Common.Internal, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
-      <HintPath>..\packages\Microsoft.ServiceFabric.4.0.1427-preview1\lib\net45\System.Fabric.Common.Internal.dll</HintPath>
+    <Reference Include="Microsoft.ServiceFabric.Internal, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.4.4.87-preview\lib\net45\Microsoft.ServiceFabric.Internal.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="System.Fabric.Common.Internal.Strings, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.ServiceFabric.4.0.1427-preview1\lib\net45\System.Fabric.Common.Internal.Strings.dll</HintPath>
+    <Reference Include="Microsoft.ServiceFabric.Internal.Strings, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.4.4.87-preview\lib\net45\Microsoft.ServiceFabric.Internal.Strings.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Fabric, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.4.4.87-preview\lib\net45\System.Fabric.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System.Fabric.Testability, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
-      <HintPath>..\packages\Microsoft.ServiceFabric.Testability.4.0.1427-preview1\lib\net45\System.Fabric.Testability.dll</HintPath>
+      <HintPath>..\packages\Microsoft.ServiceFabric.Testability.4.4.87-preview\lib\net45\System.Fabric.Testability.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System.Xml.Linq" />

@@ -1,13 +1,17 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
 using FabricTableService.Journal;
-using Microsoft.ServiceFabric.Data.Collections;
-using Microsoft.ServiceFabric.Services;
-using Microsoft.ServiceFabric.Services.Wcf;
 
 namespace FabricTableService
 {
+    using System.Collections.Generic;
+    using System.Fabric;
+
     using global::FabricTableService.Interface;
+
+    using Microsoft.ServiceFabric.Services.Communication.Runtime;
+    using Microsoft.ServiceFabric.Services.Communication.Wcf.Runtime;
+    using Microsoft.ServiceFabric.Services.Runtime;
 
     /// <summary>
     /// The fabric table service.
@@ -48,14 +52,30 @@ namespace FabricTableService
         }
 
         /// <summary>
+        /// Override this method to supply the communication listeners for the service replica. The endpoints returned by the communication listener's
+        ///             are stored as a JSON string of ListenerName, Endpoint string pairs like 
+        ///             {"Endpoints":{"Listener1":"Endpoint1","Listener2":"Endpoint2" ...}}
+        /// </summary>
+        /// <returns>
+        /// List of ServiceReplicaListeners
+        /// </returns>
+        protected override IEnumerable<ServiceReplicaListener> CreateServiceReplicaListeners()
+        {
+            return new[] { new ServiceReplicaListener(this.CreateCommunicationListener), };
+        }
+
+        /// <summary>
         /// Creates and returns a communication listener.
         /// </summary>
+        /// <param name="initializationParameters">
+        /// The service initialization parameters.
+        /// </param>
         /// <returns>
         /// A new <see cref="ICommunicationListener"/>.
         /// </returns>
-        protected override ICommunicationListener CreateCommunicationListener()
+        private ICommunicationListener CreateCommunicationListener(StatefulServiceInitializationParameters initializationParameters)
         {
-            return new WcfCommunicationListener(typeof(ITableStoreService), this)
+            return new WcfCommunicationListener(initializationParameters, typeof(ITableStoreService), this)
             {
                 Binding = ServiceBindings.TcpBinding,
                 EndpointResourceName = "ServiceEndpoint"
@@ -73,7 +93,6 @@ namespace FabricTableService
         /// </returns>
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
-            var myDictionary = await this.StateManager.GetOrAddAsync<IReliableDictionary<string, byte[]>>("myDictionary");
             var journal = await this.StateManager.GetOrAddAsync<ReliableTable<string, byte[]>>("journal");
             this.journalTask.SetResult(journal);
             

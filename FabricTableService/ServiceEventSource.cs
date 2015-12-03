@@ -3,8 +3,8 @@
     using System;
     using System.Diagnostics.Tracing;
     using System.Fabric;
-
-    using Microsoft.ServiceFabric.Services;
+    
+    using Microsoft.ServiceFabric.Services.Runtime;
 
     [EventSource(Name = "MyCompany-FabricTableServiceApplication-FabricTableService")]
     internal sealed class ServiceEventSource : EventSource

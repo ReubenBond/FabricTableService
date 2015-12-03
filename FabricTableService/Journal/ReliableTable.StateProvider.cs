@@ -10,7 +10,6 @@ namespace FabricTableService.Journal
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Fabric;
-    using System.Fabric.Replication;
     using System.IO;
     using System.Linq;
     using System.Text.RegularExpressions;
@@ -20,8 +19,10 @@ namespace FabricTableService.Journal
     using global::FabricTableService.Journal.Database;
 
     using Microsoft.ServiceFabric.Data;
-    using Transaction = System.Fabric.Replication.Transaction;
-    using TransactionBase = System.Fabric.Replication.TransactionBase;
+    using Microsoft.ServiceFabric.Replicator;
+
+    using Transaction = Microsoft.ServiceFabric.Replicator.Transaction;
+    using TransactionBase = Microsoft.ServiceFabric.Replicator.TransactionBase;
 
     /// <summary>
     /// The distributed journal.
@@ -70,9 +71,9 @@ namespace FabricTableService.Journal
         /// The state provider id.
         /// </param>
         void IStateProvider2.Initialize(
-            TransactionalReplicator transactionalReplicator, 
-            Uri name, 
-            byte[] initializationContext, 
+            TransactionalReplicator transactionalReplicator,
+            Uri name,
+            byte[] initializationContext,
             Guid stateProviderId)
         {
             this.replicator = transactionalReplicator;
@@ -309,19 +310,21 @@ namespace FabricTableService.Journal
         /// <param name="data">
         /// The data.
         /// </param>
-        void IStateProvider2.SetCurrentState(long stateRecordNumber, OperationData data)
+        Task IStateProvider2.SetCurrentStateAsync(long stateRecordNumber, OperationData data)
         {
             var count = data?.Count ?? 0;
             var length = data?.Sum(_ => _.Count) ?? 0;
             Trace.TraceInformation(
-                "[" + this.partitionId + "] " + "SetCurrentState({0}, [{1} operations, {2}b])", 
-                stateRecordNumber, 
-                count, 
+                "[" + this.partitionId + "] " + "SetCurrentState({0}, [{1} operations, {2}b])",
+                stateRecordNumber,
+                count,
                 length);
 
             /*
              * indexex: LSN, row key + partition key
              */
+
+            return Task.FromResult(0);
         }
 
         /// <summary>
@@ -347,7 +350,10 @@ namespace FabricTableService.Journal
         /// <returns>
         /// The <see cref="Task"/>.
         /// </returns>
-        Task IStateProvider2.PrepareForRemoveAsync(Transaction transaction, TimeSpan timeout, CancellationToken cancellationToken)
+        Task IStateProvider2.PrepareForRemoveAsync(
+            Transaction transaction,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
         {
             Trace.TraceInformation("[" + this.partitionId + "] " + "PrepareForRemoveAsync()");
             return Task.FromResult(0);
@@ -389,16 +395,16 @@ namespace FabricTableService.Journal
         Task<object> IStateProvider2.ApplyAsync(
             long lsn,
             TransactionBase transactionBase,
-            byte[] data,
+            OperationData data,
             ApplyContext applyContext)
         {
             // Get the operation.
-            var operation = Operation.Deserialize(data);
+            var operation = Operation.Deserialize(data[0]);
 
             // Resume the existing transaction for this operation or start a transaction for this operation.
             bool applied;
             OperationContext context;
-            DatabaseTransaction<TKey,TValue> tx;
+            DatabaseTransaction<TKey, TValue> tx;
             if (IsPrimaryOperation(applyContext) && this.inProgressOperations.TryGetValue(operation.Id, out context))
             {
                 applied = true;
@@ -456,11 +462,7 @@ namespace FabricTableService.Journal
             try
             {
                 tx = context.DatabaseTransaction;
-
-                var part = this.replicator.StatefulPartition;
-                /*Trace.TraceInformation(
-                    $"[{this.partitionId} r:{part.ReadStatus} w:{part.WriteStatus}] PerformOperation(id: {id}, tx: {context.ReplicatorTransaction.Id}, undo: {JsonConvert.SerializeObject(undo, SerializationSettings.JsonConfig)}, redo: {JsonConvert.SerializeObject(redo, SerializationSettings.JsonConfig)}");
-                    */
+                
                 // Apply initially on primary, but do not commit.
                 result = (T)redo.Apply(tx.Table);
 
@@ -473,7 +475,11 @@ namespace FabricTableService.Journal
                 }
 
                 // Add this operation to the transaction.
-                context.ReplicatorTransaction.AddOperation(undo.Serialize(), redo.Serialize(), null, this.Name);
+                context.ReplicatorTransaction.AddOperation(
+                    new OperationData(undo.Serialize()),
+                    new OperationData(redo.Serialize()),
+                    null,
+                    this.Name);
                 tx.Pause();
             }
             catch

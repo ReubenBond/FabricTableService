@@ -9,11 +9,7 @@ namespace FabricTableService.Utilities
     using System;
     using System.IO;
     using System.Runtime.Serialization.Formatters.Binary;
-
-    using global::FabricTableService.Journal;
-
-    using Microsoft.IO;
-
+    
     /// <summary>
     /// The binary serialization extensions.
     /// </summary>

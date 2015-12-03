@@ -9,7 +9,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>FabricTableService</RootNamespace>
     <AssemblyName>FabricTableService</AssemblyName>
-    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <PublishUrl>publish\</PublishUrl>
@@ -27,6 +27,7 @@
     <IsWebBootstrapper>false</IsWebBootstrapper>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
     <PlatformTarget>x64</PlatformTarget>
@@ -51,22 +52,31 @@
     <AdditionalFileItemNames>$(AdditionalFileItemNames);None</AdditionalFileItemNames>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Esent.Interop">
-      <HintPath>..\packages\ManagedEsent.1.9.2.0\lib\net40\Esent.Interop.dll</HintPath>
+    <Reference Include="Esent.Interop, Version=1.9.3.2, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\packages\ManagedEsent.1.9.3.2\lib\net40\Esent.Interop.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.IO.RecyclableMemoryStream, Version=1.1.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.IO.RecyclableMemoryStream.1.1.0.0\lib\net45\Microsoft.IO.RecyclableMemoryStream.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.ServiceFabric.Data, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
-      <HintPath>..\packages\Microsoft.ServiceFabric.Data.1.0.328-preview1\lib\net45\Microsoft.ServiceFabric.Data.dll</HintPath>
+      <HintPath>..\packages\Microsoft.ServiceFabric.Data.1.4.87-preview\lib\net45\Microsoft.ServiceFabric.Data.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Microsoft.ServiceFabric.Internal, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.4.4.87-preview\lib\net45\Microsoft.ServiceFabric.Internal.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Microsoft.ServiceFabric.Internal.Strings, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.4.4.87-preview\lib\net45\Microsoft.ServiceFabric.Internal.Strings.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.ServiceFabric.Replicator">
       <HintPath>..\packages\Microsoft.ServiceFabric.Data.1.0.328-preview1\lib\net45\Microsoft.ServiceFabric.Replicator.dll</HintPath>
     </Reference>
-    <Reference Include="Microsoft.ServiceFabric.Services, Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
-      <HintPath>..\packages\Microsoft.ServiceFabric.Services.1.0.328-preview1\lib\net45\Microsoft.ServiceFabric.Services.dll</HintPath>
+    <Reference Include="Microsoft.ServiceFabric.Services, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.Services.1.4.87-preview\lib\net45\Microsoft.ServiceFabric.Services.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=7.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
@@ -75,13 +85,8 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
-    <Reference Include="System.Fabric, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64" />
-    <Reference Include="System.Fabric.Common.Internal, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
-      <HintPath>..\packages\Microsoft.ServiceFabric.4.0.1427-preview1\lib\net45\System.Fabric.Common.Internal.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
-    <Reference Include="System.Fabric.Common.Internal.Strings, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.ServiceFabric.4.0.1427-preview1\lib\net45\System.Fabric.Common.Internal.Strings.dll</HintPath>
+    <Reference Include="System.Fabric, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=AMD64">
+      <HintPath>..\packages\Microsoft.ServiceFabric.4.4.87-preview\lib\net45\System.Fabric.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System.Runtime.Serialization" />
@@ -92,9 +97,6 @@
     <Compile Include="Journal\Database\PersistentTableConstants.cs" />
     <Compile Include="Journal\Database\PersistentTablePool.cs" />
     <Compile Include="Utilities\MemoryStreamManager.cs" />
-    <Compile Include="Json\GuidJsonConverter.cs" />
-    <Compile Include="Json\JsonContractResolver.cs" />
-    <Compile Include="Json\SerializationSettings.cs" />
     <Compile Include="Utilities\BinarySerializationExtensions.cs" />
     <Compile Include="Journal\Database\ColumnConverter.cs" />
     <Compile Include="Journal\ReliableTable.cs" />

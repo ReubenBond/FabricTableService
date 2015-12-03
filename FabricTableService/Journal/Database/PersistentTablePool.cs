@@ -63,7 +63,11 @@ namespace FabricTableService.Journal.Database
         /// <param name="maxPoolSize">
         /// The maximum size of the pool.
         /// </param>
-        public PersistentTablePool(string directory, string databaseFile, string tableName, int maxPoolSize = int.MaxValue)
+        public PersistentTablePool(
+            string directory,
+            string databaseFile,
+            string tableName,
+            int maxPoolSize = int.MaxValue)
         {
             this.Directory = directory;
             this.DatabaseFile = databaseFile;
@@ -152,32 +156,39 @@ namespace FabricTableService.Journal.Database
         {
             // Initialize an instance of the database engine.
             this.Instance = new Instance("instance" + $"{this.GetHashCode():X}");
-            this.Instance.Parameters.LogFileDirectory = this.Instance.Parameters.SystemDirectory = this.Instance.Parameters.TempDirectory = this.Instance.Parameters.AlternateDatabaseRecoveryDirectory = this.Directory;
+            this.Instance.Parameters.LogFileDirectory =
+                this.Instance.Parameters.SystemDirectory =
+                this.Instance.Parameters.TempDirectory =
+                this.Instance.Parameters.AlternateDatabaseRecoveryDirectory = this.Directory;
             this.Instance.Parameters.CircularLog = true;
             var completion = new TaskCompletionSource<int>();
-            Api.JetRestoreInstance(this.Instance, source, destination, (sesid, snp, snt, data) =>
-            {
-                var statusString = $"({sesid}, {snp}, {snt}, {data})";
-                switch (snt)
+            Api.JetRestoreInstance(
+                this.Instance,
+                source,
+                destination,
+                (sesid, snp, snt, data) =>
                 {
-                    case JET_SNT.Begin:
-                        Trace.TraceInformation("Began restore: " + statusString);
-                        break;
-                    case JET_SNT.Fail:
-                        Trace.TraceInformation("Failed restore: " + statusString);
-                        completion.SetException(new Exception("Restore operation failed: " + statusString));
-                        break;
-                    case JET_SNT.Complete:
-                        Trace.TraceInformation("Completed restore: " + statusString);
-                        completion.SetResult(0);
-                        break;
-                    case JET_SNT.RecoveryStep:
-                        Trace.TraceInformation("Recovery step during restore: " + statusString);
-                        break;
-                }
+                    var statusString = $"({sesid}, {snp}, {snt}, {data})";
+                    switch (snt)
+                    {
+                        case JET_SNT.Begin:
+                            Trace.TraceInformation("Began restore: " + statusString);
+                            break;
+                        case JET_SNT.Fail:
+                            Trace.TraceInformation("Failed restore: " + statusString);
+                            completion.SetException(new Exception("Restore operation failed: " + statusString));
+                            break;
+                        case JET_SNT.Complete:
+                            Trace.TraceInformation("Completed restore: " + statusString);
+                            completion.SetResult(0);
+                            break;
+                        case JET_SNT.RecoveryStep:
+                            Trace.TraceInformation("Recovery step during restore: " + statusString);
+                            break;
+                    }
 
-                return JET_err.Success;
-            });
+                    return JET_err.Success;
+                });
             await completion.Task;
             this.Instance.Init();
         }
@@ -232,7 +243,14 @@ namespace FabricTableService.Journal.Database
             // Get references to the columns.
             var columns = Api.GetColumnDictionary(session, table);
 
-            var result = new PersistentTable<TKey, TValue> { Table = table, Session = session, KeyColumn = columns["key"], ValueColumn = columns["value"], SessionHandle = GCHandle.Alloc(session) };
+            var result = new PersistentTable<TKey, TValue>
+            {
+                Table = table,
+                Session = session,
+                KeyColumn = columns["key"],
+                ValueColumn = columns["value"],
+                SessionHandle = GCHandle.Alloc(session)
+            };
 
             this.allInstances.Add(result);
             return result;
@@ -277,7 +295,11 @@ namespace FabricTableService.Journal.Database
         {
             if (!File.Exists(databaseFile))
             {
-                Trace.TraceInformation("Creating database '{0}' with table '{1}' in directory '{2}'.", databaseFile, tableName, directory);
+                Trace.TraceInformation(
+                    "Creating database '{0}' with table '{1}' in directory '{2}'.",
+                    databaseFile,
+                    tableName,
+                    directory);
                 CreateDatabase(directory, databaseFile, tableName);
                 Trace.TraceInformation("Successfully created database.");
             }
@@ -310,7 +332,12 @@ namespace FabricTableService.Journal.Database
                 using (var session = new Session(instance))
                 {
                     JET_DBID database;
-                    Api.JetCreateDatabase(session, Path.Combine(directory, databaseFile), null, out database, CreateDatabaseGrbit.OverwriteExisting);
+                    Api.JetCreateDatabase(
+                        session,
+                        Path.Combine(directory, databaseFile),
+                        null,
+                        out database,
+                        CreateDatabaseGrbit.OverwriteExisting);
                     using (var tx = new Transaction(session))
                     {
                         JET_TABLEID table;
@@ -359,7 +386,14 @@ namespace FabricTableService.Journal.Database
 
             // Create the primary index.
             const string PrimaryIndexDefinition = "+key\0\0";
-            Api.JetCreateIndex(session, table, PersistentTableConstants.PrimaryIndexName, CreateIndexGrbit.IndexPrimary, PrimaryIndexDefinition, PrimaryIndexDefinition.Length, 100);
+            Api.JetCreateIndex(
+                session,
+                table,
+                PersistentTableConstants.PrimaryIndexName,
+                CreateIndexGrbit.IndexPrimary,
+                PrimaryIndexDefinition,
+                PrimaryIndexDefinition.Length,
+                100);
         }
 
         /// <summary>

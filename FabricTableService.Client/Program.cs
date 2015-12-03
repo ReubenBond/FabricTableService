@@ -6,9 +6,10 @@
     using System.Threading.Tasks;
 
     using FabricTableService.Interface;
-
-    using Microsoft.ServiceFabric.Services;
-    using Microsoft.ServiceFabric.Services.Wcf;
+    
+    using Microsoft.ServiceFabric.Services.Client;
+    using Microsoft.ServiceFabric.Services.Communication.Client;
+    using Microsoft.ServiceFabric.Services.Communication.Wcf.Client;
 
     internal class Program
     {
@@ -37,7 +38,7 @@
                 clientFactory,
                 serviceName, partitionKey: 0);
 
-            var tasks = new Task[15];
+            var tasks = new Task[32];
             var iteration = (long)0;
 
             // Initialize.

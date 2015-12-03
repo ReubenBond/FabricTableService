@@ -12,7 +12,7 @@
 namespace FabricTableService.Journal.Database
 {
     using Microsoft.Isam.Esent.Interop;
-
+    
     /// <summary>
     /// Contains methods to set and get data from the ESENT
     /// database.
