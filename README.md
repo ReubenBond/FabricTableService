@@ -1,11 +1,12 @@
 #Service Fabric Table Service
 An ESENT-based database on Service Fabric. Demonstrates how to write a distributed, reliable database which uses Service Fabric for replication.
 
-The `ReliableTable<TKey, TValue>` class can take part in transactions along with Service Fabric's existing `IReliableDictionary` & `IReliableQueue` classes.
+The `ReliableTable<TKey, TValue>` class can take part in transactions along with Service Fabric's existing `IReliableDictionary` & `IReliableQueue` providers.
 
 ## Suggestions welcome via [Twitter: @ReubenBond](https://twitter.com/reubenbond) or GH issues :)
 
-Example:
+## Example:
+
 In your StatefulService's `RunAsync` method, obtain a reference to a table:
 ```C#
 var journal = await this.StateManager.GetOrAddAsync<ReliableTable<string, byte[]>>("journal");
@@ -21,7 +22,7 @@ public async Task Insert(string key, string partition, byte[] value)
 	}
 }
 ```
-Ideas for improvement:
+## Ideas for improvement:
 * Use a wholly managed database to avoid calls into native code.
 * Alternatively: chunkify the marshalling via a native library.
 * Use ProtoBuf for serialization of operations, instead of manual binary serialization.
