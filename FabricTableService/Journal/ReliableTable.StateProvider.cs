@@ -18,13 +18,8 @@ namespace FabricTableService.Journal
     using System.Threading.Tasks;
 
     using global::FabricTableService.Journal.Database;
-    using global::FabricTableService.Json;
 
     using Microsoft.ServiceFabric.Data;
-
-    using Newtonsoft.Json;
-
-    using ESENT = Microsoft.Isam.Esent.Interop;
     using Transaction = System.Fabric.Replication.Transaction;
     using TransactionBase = System.Fabric.Replication.TransactionBase;
 
@@ -457,7 +452,7 @@ namespace FabricTableService.Journal
         {
             T result;
             var tx = default(DatabaseTransaction<TKey, TValue>);
-            var addedToInFlightOperations = false;
+            var inFlight = false;
             try
             {
                 tx = context.DatabaseTransaction;
@@ -470,9 +465,9 @@ namespace FabricTableService.Journal
                 result = (T)redo.Apply(tx.Table);
 
                 // Add the operation to the in-progress collection so that we can retrieve it when it is committed.
-                addedToInFlightOperations = this.inProgressOperations.TryAdd(id, context);
+                inFlight = this.inProgressOperations.TryAdd(id, context);
 
-                if (!addedToInFlightOperations)
+                if (!inFlight)
                 {
                     throw new InvalidOperationException($"Operation with id {id} already in-progress.");
                 }
@@ -485,7 +480,7 @@ namespace FabricTableService.Journal
             {
                 tx.Transaction?.Rollback();
                 tx.Dispose();
-                if (addedToInFlightOperations)
+                if (inFlight)
                 {
                     this.inProgressOperations.TryRemove(id, out context);
                 }

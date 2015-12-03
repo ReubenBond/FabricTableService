@@ -4,10 +4,11 @@ using FabricTableService.Journal;
 using Microsoft.ServiceFabric.Data.Collections;
 using Microsoft.ServiceFabric.Services;
 using Microsoft.ServiceFabric.Services.Wcf;
-using TableStore.Interface;
 
 namespace FabricTableService
 {
+    using global::FabricTableService.Interface;
+
     /// <summary>
     /// The fabric table service.
     /// </summary>

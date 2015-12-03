@@ -9,14 +9,14 @@
     [EventSource(Name = "MyCompany-FabricTableServiceApplication-FabricTableService")]
     internal sealed class ServiceEventSource : EventSource
     {
-        public static ServiceEventSource Current = new ServiceEventSource();
+        public static readonly ServiceEventSource Current = new ServiceEventSource();
 
         [NonEvent]
         public void Message(string message, params object[] args)
         {
             if (this.IsEnabled())
             {
-                string finalMessage = string.Format(message, args);
+                var finalMessage = string.Format(message, args);
                 this.Message(finalMessage);
             }
         }
@@ -35,7 +35,7 @@
         {
             if (this.IsEnabled())
             {
-                string finalMessage = string.Format(message, args);
+                var finalMessage = string.Format(message, args);
                 this.ServiceMessage(
                     service.ServiceInitializationParameters.ServiceName.ToString(),
                     service.ServiceInitializationParameters.ServiceTypeName,
@@ -53,7 +53,7 @@
         {
             if (this.IsEnabled())
             {
-                string finalMessage = string.Format(message, args);
+                var finalMessage = string.Format(message, args);
                 this.ServiceMessage(
                     service.ServiceInitializationParameters.ServiceName.ToString(),
                     service.ServiceInitializationParameters.ServiceTypeName,

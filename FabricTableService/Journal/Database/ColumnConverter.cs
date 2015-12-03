@@ -316,7 +316,7 @@ namespace FabricTableService.Journal.Database
         /// <returns>A nullable DateTime constructed from the column.</returns>
         private static DateTime? RetrieveDateTime(JET_SESID sesid, JET_TABLEID tableid, JET_COLUMNID columnid)
         {
-            long? ticks = Api.RetrieveColumnAsInt64(sesid, tableid, columnid);
+            var ticks = Api.RetrieveColumnAsInt64(sesid, tableid, columnid);
             if (ticks.HasValue)
             {
                 return new DateTime(ticks.Value);
@@ -334,7 +334,7 @@ namespace FabricTableService.Journal.Database
         /// <returns>A nullable TimeSpan constructed from the column.</returns>
         private static TimeSpan? RetrieveTimeSpan(JET_SESID sesid, JET_TABLEID tableid, JET_COLUMNID columnid)
         {
-            long? ticks = Api.RetrieveColumnAsInt64(sesid, tableid, columnid);
+            var ticks = Api.RetrieveColumnAsInt64(sesid, tableid, columnid);
             if (ticks.HasValue)
             {
                 return new TimeSpan(ticks.Value);

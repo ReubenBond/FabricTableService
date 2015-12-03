@@ -10,7 +10,7 @@ namespace ChaosTest
     {
         public static void Main(string[] args)
         {
-            string clusterConnection = "localhost:19000";
+            var clusterConnection = "localhost:19000";
 
             Console.WriteLine("Starting Chaos Test Scenario...");
             try
@@ -20,7 +20,7 @@ namespace ChaosTest
             catch (AggregateException ae)
             {
                 Console.WriteLine("Chaos Test Scenario did not complete: ");
-                foreach (Exception ex in ae.InnerExceptions)
+                foreach (var ex in ae.InnerExceptions)
                 {
                     if (ex is FabricException)
                     {
@@ -34,16 +34,16 @@ namespace ChaosTest
 
         static async Task RunChaosTestScenarioAsync(string clusterConnection)
         {
-            TimeSpan maxClusterStabilizationTimeout = TimeSpan.FromSeconds(180);
+            var maxClusterStabilizationTimeout = TimeSpan.FromSeconds(180);
             uint maxConcurrentFaults = 3;
-            bool enableMoveReplicaFaults = true;
+            var enableMoveReplicaFaults = true;
 
             // Create FabricClient with connection & security information here.
-            FabricClient fabricClient = new FabricClient(clusterConnection);
+            var fabricClient = new FabricClient(clusterConnection);
 
             // The Chaos Test Scenario should run at least 60 minutes or up until it fails.
-            TimeSpan timeToRun = TimeSpan.FromMinutes(60);
-            ChaosTestScenarioParameters scenarioParameters = new ChaosTestScenarioParameters(
+            var timeToRun = TimeSpan.FromMinutes(60);
+            var scenarioParameters = new ChaosTestScenarioParameters(
               maxClusterStabilizationTimeout,
               maxConcurrentFaults,
               enableMoveReplicaFaults,
@@ -56,7 +56,7 @@ namespace ChaosTest
             // scenarioParameters.WaitTimeBetweenFaults = TimeSpan.FromSeconds(10);
 
             // Create the scenario class and execute it asynchronously.
-            ChaosTestScenario chaosScenario = new ChaosTestScenario(fabricClient, scenarioParameters);
+            var chaosScenario = new ChaosTestScenario(fabricClient, scenarioParameters);
 
             try
             {

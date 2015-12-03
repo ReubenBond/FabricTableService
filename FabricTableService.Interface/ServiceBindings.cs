@@ -1,4 +1,4 @@
-﻿namespace TableStore.Interface
+﻿namespace FabricTableService.Interface
 {
     using System.ServiceModel;
 

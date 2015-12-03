@@ -7,8 +7,8 @@
     <ProjectGuid>{489FD45F-D867-42D2-B07A-59B5235C07D7}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>TableStore.Client</RootNamespace>
-    <AssemblyName>TableStore.Client</AssemblyName>
+    <RootNamespace>FabricTableService.Client</RootNamespace>
+    <AssemblyName>FabricTableService.Client</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
@@ -63,16 +63,15 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Utilities\ChannelFactoryExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\TableStore.Interface\TableStore.Interface.csproj">
+    <ProjectReference Include="..\FabricTableService.Interface\FabricTableService.Interface.csproj">
       <Project>{A5DE67BC-AB45-41F9-A342-5B827D9FD7A1}</Project>
-      <Name>TableStore.Interface</Name>
+      <Name>FabricTableService.Interface</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

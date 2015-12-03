@@ -117,9 +117,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\TableStore.Interface\TableStore.Interface.csproj">
+    <ProjectReference Include="..\FabricTableService.Interface\FabricTableService.Interface.csproj">
       <Project>{a5de67bc-ab45-41f9-a342-5b827d9fd7a1}</Project>
-      <Name>TableStore.Interface</Name>
+      <Name>FabricTableService.Interface</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

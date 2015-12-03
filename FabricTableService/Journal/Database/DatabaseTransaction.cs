@@ -78,8 +78,8 @@ namespace FabricTableService.Journal.Database
                 return;
             }
 
-            this.Pool.Return(this.Table);
             Api.JetResetSessionContext(this.Table.Session);
+            this.Pool.Return(this.Table);
 
             this.Table = null;
             this.Transaction = null;

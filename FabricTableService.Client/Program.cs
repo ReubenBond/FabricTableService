@@ -1,29 +1,29 @@
-﻿using System.Fabric;
-using System.ServiceModel;
-using System.Threading.Tasks;
-using Microsoft.ServiceFabric.Services;
-using Microsoft.ServiceFabric.Services.Wcf;
-using TableStore.Interface;
-
-namespace TableStore.Client
+﻿namespace FabricTableService.Client
 {
     using System;
-    using System.Collections.Generic;
     using System.Diagnostics;
-    using System.Linq;
-    using System.Text;
+    using System.Fabric;
+    using System.Threading.Tasks;
+
+    using FabricTableService.Interface;
+
+    using Microsoft.ServiceFabric.Services;
+    using Microsoft.ServiceFabric.Services.Wcf;
 
     internal class Program
     {
         private static void Main(string[] args)
         {
-            Run().Wait();
+            // The Fabric URI of the service.
+            var serviceName = new Uri(args.Length > 0 ? args[0] : "fabric:/TableService/FabricTableService");
+
+            Run(serviceName).Wait();
 
             Console.WriteLine("Press any key to exit.");
             Console.ReadKey();
         }
 
-        private static async Task Run()
+        private static async Task Run(Uri serviceName)
         {
             var serviceResolver = new ServicePartitionResolver(() => new FabricClient());
 
@@ -31,12 +31,11 @@ namespace TableStore.Client
                 serviceResolver,// ServicePartitionResolver
                 ServiceBindings.TcpBinding,        // Client binding
                 null,           // Callback object
-                null);          // donot retry Exception types
-
+                null);          // do not retry Exception types
             
             var client = new ServicePartitionClient<WcfCommunicationClient<ITableStoreService>>(
                 clientFactory,
-                new Uri("fabric:/FabricTableServiceApplication/FabricTableService"), partitionKey: 0);
+                serviceName, partitionKey: 0);
 
             var tasks = new Task[15];
             var iteration = (long)0;
@@ -61,7 +60,7 @@ namespace TableStore.Client
                 if (iteration%100 == 0)
                 {
                     //Console.Write('.');
-                    Console.WriteLine($"{iteration} iterations in {timer.ElapsedMilliseconds}ms. {total *1000/ ( timer.ElapsedMilliseconds)}/sec");
+                    Console.WriteLine($"{iteration} iterations in {timer.ElapsedMilliseconds}ms. {total * 1000/ ( timer.ElapsedMilliseconds)}/sec");
                 }
 
                 if (iteration % 8000 == 0 && timer.ElapsedMilliseconds > 0)
