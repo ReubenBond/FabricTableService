@@ -3,7 +3,7 @@ An ESENT-based database on Service Fabric. Demonstrates how to write a distribut
 
 The `ReliableTable<TKey, TValue>` class can take part in transactions along with Service Fabric's existing `IReliableDictionary` & `IReliableQueue` classes.
 
-## [Twitter: @ReubenBond](https://twitter.com/reubenbond) :)
+## Suggestions welcome via [Twitter: @ReubenBond](https://twitter.com/reubenbond) or GH issues :)
 
 Example:
 In your StatefulService's `RunAsync` method, obtain a reference to a table:
